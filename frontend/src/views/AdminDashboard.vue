@@ -282,7 +282,7 @@
 
           <div class="message-body">
             <strong>Isi Pesan:</strong>
-            <pre>{{ selectedMessage.body }}</pre>
+            <p v-html="selectedMessage.body"></p>
           </div>
         </div>
       </div>

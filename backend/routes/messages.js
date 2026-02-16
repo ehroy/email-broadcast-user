@@ -65,7 +65,7 @@ router.get("/", authenticateToken, async (req, res) => {
       // ======================================
       if (allowedKeywords.length) {
         emails = emails.filter((email) => {
-          const subjectLower = email.keywords.toLowerCase();
+          const subjectLower = email.subject.toLowerCase();
           return allowedKeywords.some((ak) => subjectLower.includes(ak));
         });
       }
