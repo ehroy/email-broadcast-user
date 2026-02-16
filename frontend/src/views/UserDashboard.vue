@@ -83,9 +83,9 @@
             <span class="from">📨 {{ message.from_email }}</span>
           </div>
 
-          <div class="message-preview">
+          <!-- <div class="message-preview">
             {{ truncateText(message.body, 120) }}
-          </div>
+          </div> -->
 
           <div class="message-footer">
             <div class="keywords">
@@ -138,7 +138,7 @@
 
           <div class="message-body">
             <strong>Isi Pesan:</strong>
-            <pre>{{ selectedMessage.body }}</pre>
+            <p v-html="selectedMessage.body"></p>
           </div>
         </div>
       </div>

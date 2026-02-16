@@ -1,6 +1,7 @@
 const Imap = require("imap");
 const { simpleParser } = require("mailparser");
 require("dotenv").config({ path: "./backend/.env" });
+
 class EmailService {
   constructor() {
     this.imap = null;
@@ -43,7 +44,7 @@ class EmailService {
   }
 
   // =====================================
-  // 🔥 BUILD OR (MULTI FROM / SUBJECT)
+  // BUILD OR
   // =====================================
   buildOr(field, values) {
     if (!values || values.length === 0) return null;
@@ -74,15 +75,28 @@ class EmailService {
         today.setHours(0, 0, 0, 0);
 
         const searchCriteria = [["SINCE", today]];
+
+        // OR SUBJECT
+        const subjectOr = this.buildOr("SUBJECT", subject);
+
+        // OR TO
         const toOr = this.buildOr("TO", to);
-        if (toOr) searchCriteria.push(toOr);
-        // FROM multi
+
+        // gabungkan
+        if (subjectOr && toOr) {
+          searchCriteria.push(["OR", subjectOr, toOr]);
+        } else if (subjectOr) {
+          searchCriteria.push(subjectOr);
+        } else if (toOr) {
+          searchCriteria.push(toOr);
+        }
+
+        console.log("SEARCH:", JSON.stringify(searchCriteria));
 
         this.imap.search(searchCriteria, (err, results) => {
           if (err) return reject(err);
           if (!results || results.length === 0) return resolve([]);
 
-          // ambil terakhir biar cepat
           const latest = results.slice(-10);
 
           const fetch = this.imap.fetch(latest, {
@@ -110,7 +124,6 @@ class EmailService {
                   parsed.subject,
                   parsed.text,
                 );
-                console.log(parsed.to);
 
                 emails.push({
                   id: parsed.messageId || `msg_${seqno}_${Date.now()}`,
@@ -118,7 +131,7 @@ class EmailService {
                   subject: parsed.subject || "",
                   from_email: parsed.from?.text || "",
                   to_email: parsed.to?.text || "",
-                  body: parsed.text || parsed.html || "",
+                  body: parsed.html || parsed.text || "",
                   received_date: parsed.date
                     ? parsed.date.toISOString()
                     : new Date().toISOString(),
@@ -136,7 +149,7 @@ class EmailService {
   }
 
   // =====================================
-  // EXTRACT KEYWORDS
+  // EXTRACT KEYWORDS (NO OTP REGEX)
   // =====================================
   extractKeywords(subject, body) {
     const text = `${subject || ""} ${body || ""}`.toLowerCase();
@@ -153,13 +166,10 @@ class EmailService {
     keywordPatterns.forEach((keyword) => {
       if (text.includes(keyword)) {
         keywords.push(keyword);
+      } else {
+        keywords.push(subject); // fallback: ambil 30 karakter pertama sebagai keyword
       }
     });
-
-    const otpMatch = text.match(/\b\d{4,8}\b/g);
-    if (otpMatch) {
-      keywords.push("contains_code");
-    }
 
     return [...new Set(keywords)];
   }

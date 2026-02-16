@@ -65,7 +65,7 @@ router.get("/", authenticateToken, async (req, res) => {
       // ======================================
       if (allowedKeywords.length) {
         emails = emails.filter((email) => {
-          const subjectLower = email.subject.toLowerCase();
+          const subjectLower = email.keywords.toLowerCase();
           return allowedKeywords.some((ak) => subjectLower.includes(ak));
         });
       }
@@ -78,7 +78,7 @@ router.get("/", authenticateToken, async (req, res) => {
       const searchLower = search.toLowerCase();
       emails = emails.filter(
         (email) =>
-          email.subject.toLowerCase().includes(searchLower) ||
+          email.keywords.toLowerCase().includes(searchLower) ||
           email.body.toLowerCase().includes(searchLower) ||
           email.from_email.toLowerCase().includes(searchLower) ||
           email.to_email.toLowerCase().includes(searchLower),
