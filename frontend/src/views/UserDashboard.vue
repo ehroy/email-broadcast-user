@@ -455,7 +455,7 @@ onMounted(async () => {
     if (autoRefresh.value) {
       fetchMessages();
     }
-  }, 10000);
+  }, 60000);
 });
 
 onUnmounted(() => {

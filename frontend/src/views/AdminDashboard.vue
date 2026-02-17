@@ -388,28 +388,39 @@ const categorizeMessage = (message) => {
   const keywords = (message.keywords || "").toLowerCase();
   const combined = subject + " " + keywords;
 
+  // Check for password reset first (more specific)
   if (
-    combined.includes("household") ||
-    combined.includes("rumah") ||
-    combined.includes("keluarga")
-  ) {
-    return "household";
-  }
-  if (
-    combined.includes("login") ||
-    combined.includes("sign in") ||
-    combined.includes("masuk")
-  ) {
-    return "login";
-  }
-  if (
-    combined.includes("forgot") ||
     combined.includes("reset") ||
     combined.includes("lupa") ||
-    combined.includes("password")
+    combined.includes("forgot")
   ) {
     return "forgot_password";
   }
+
+  // Check for household
+  if (
+    combined.includes("household") ||
+    combined.includes("rumah") ||
+    combined.includes("keluarga") ||
+    combined.includes("akses sementara") ||
+    combined.includes("temporary access") ||
+    combined.includes("memperbarui rumah") ||
+    combined.includes("update your netflix household")
+  ) {
+    return "household";
+  }
+
+  // Check for login (sign-in code)
+  if (
+    combined.includes("sign in") ||
+    combined.includes("sign-in") ||
+    combined.includes("masuk") ||
+    combined.includes("kode masuk") ||
+    combined.includes("login")
+  ) {
+    return "login";
+  }
+
   return "unknown";
 };
 
@@ -609,7 +620,6 @@ onMounted(() => {
   fetchUsers();
 });
 </script>
-
 <style scoped>
 * {
   box-sizing: border-box;

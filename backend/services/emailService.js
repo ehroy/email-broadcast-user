@@ -68,7 +68,7 @@ class EmailService {
     }
 
     return new Promise((resolve, reject) => {
-      this.imap.openBox("INBOX", false, (err) => {
+      this.imap.openBox("HOUSEHOLD", false, (err) => {
         if (err) return reject(err);
 
         const today = new Date();
@@ -118,7 +118,7 @@ class EmailService {
                   ? new Date(parsed.date).getTime()
                   : now;
 
-                if (now - emailTime > maxAge) return;
+                // if (now - emailTime > maxAge) return;
 
                 const keywords = this.extractKeywords(
                   parsed.subject,
@@ -161,6 +161,10 @@ class EmailService {
       "Penting: Cara memperbarui Rumah dengan Akun Netflix-mu",
       "Important: How to update your Netflix Household",
       "Important: how to update your Netflix household",
+      "Netflix: Kode masukmu",
+      "Netflix: Your sign-in code",
+      "Complete your password reset request",
+      "Selesaikan permintaanmu untuk mengatur ulang sandi",
     ].map((k) => k.toLowerCase());
 
     keywordPatterns.forEach((keyword) => {
