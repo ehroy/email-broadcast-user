@@ -251,32 +251,43 @@ const categorizeMessage = (message) => {
   const subject = (message.subject || "").toLowerCase();
   const keywords = (message.keywords || "").toLowerCase();
   const combined = subject + " " + keywords;
-
+  console.log("Categorizing message:", { subject, keywords, combined });
+  // Check for password reset first (more specific)
   if (
-    combined.includes("household") ||
-    combined.includes("rumah") ||
-    combined.includes("keluarga")
-  ) {
-    return "household";
-  }
-  if (
-    combined.includes("login") ||
-    combined.includes("sign in") ||
-    combined.includes("masuk")
-  ) {
-    return "login";
-  }
-  if (
-    combined.includes("forgot") ||
     combined.includes("reset") ||
     combined.includes("lupa") ||
-    combined.includes("password")
+    combined.includes("forgot")
   ) {
     return "forgot_password";
   }
+
+  // Check for household
+  if (
+    combined.includes("household") ||
+    combined.includes("rumah") ||
+    combined.includes("keluarga") ||
+    combined.includes("akses sementara") ||
+    combined.includes("temporary access") ||
+    combined.includes("memperbarui rumah") ||
+    combined.includes("update your netflix household")
+  ) {
+    return "household";
+  }
+
+  // Check for login (sign-in code)
+  if (
+    combined.includes("sign in") ||
+    combined.includes("sign-in") ||
+    combined.includes("masuk") ||
+    combined.includes("kode masuk") ||
+    combined.includes("login") ||
+    combined.includes("code")
+  ) {
+    return "login";
+  }
+
   return "unknown";
 };
-
 // Categories with counts
 const categories = computed(() => {
   const counts = {
@@ -349,9 +360,9 @@ const hasPermissions = computed(() => {
 
 const fetchMessages = async () => {
   try {
-    const response = await axios.get("/api/messages");
+    const params = searchQuery.value ? { search: searchQuery.value } : {};
+    const response = await axios.get("/api/messages", { params });
     messages.value = response.data;
-    updateLastUpdate();
   } catch (error) {
     console.error("Error fetching messages:", error);
   } finally {

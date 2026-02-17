@@ -11,7 +11,7 @@
           </div>
         </div>
         <button @click="handleLogout" class="btn-logout">
-          <span>EXIT</span>
+          <span>LOGOUT</span>
           <span class="icon">→</span>
         </button>
       </div>
@@ -387,7 +387,7 @@ const categorizeMessage = (message) => {
   const subject = (message.subject || "").toLowerCase();
   const keywords = (message.keywords || "").toLowerCase();
   const combined = subject + " " + keywords;
-
+  console.log("Categorizing message:", { subject, keywords, combined });
   // Check for password reset first (more specific)
   if (
     combined.includes("reset") ||
@@ -416,7 +416,8 @@ const categorizeMessage = (message) => {
     combined.includes("sign-in") ||
     combined.includes("masuk") ||
     combined.includes("kode masuk") ||
-    combined.includes("login")
+    combined.includes("login") ||
+    combined.includes("code")
   ) {
     return "login";
   }
@@ -490,9 +491,9 @@ const filteredMessages = computed(() => {
 let searchTimeout = null;
 
 const fetchMessages = async () => {
-  loading.value = true;
   try {
-    const response = await axios.get("/api/messages");
+    const params = searchQuery.value ? { search: searchQuery.value } : {};
+    const response = await axios.get("/api/messages", { params });
     messages.value = response.data;
   } catch (error) {
     console.error("Error fetching messages:", error);
@@ -500,7 +501,6 @@ const fetchMessages = async () => {
     loading.value = false;
   }
 };
-
 const fetchUsers = async () => {
   loadingUsers.value = true;
   try {
