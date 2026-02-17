@@ -148,6 +148,85 @@ class EmailService {
     });
   }
 
+  async searchFetchRecentEmails({ search = null, minutes = 15 } = {}) {
+    if (!this.isConnected) {
+      await this.connect();
+    }
+
+    return new Promise((resolve, reject) => {
+      this.imap.openBox("HOUSEHOLD", false, (err) => {
+        if (err) return reject(err);
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const searchCriteria = [
+          ["TO", search],
+          ["SINCE", today],
+        ];
+
+        // OR SUBJECT
+
+        // OR TO
+
+        // gabungkan
+
+        console.log("SEARCH:", JSON.stringify(searchCriteria));
+
+        this.imap.search(searchCriteria, (err, results) => {
+          if (err) return reject(err);
+          if (!results || results.length === 0) return resolve([]);
+
+          const latest = results.slice(-10);
+
+          const fetch = this.imap.fetch(latest, {
+            bodies: "",
+            markSeen: false,
+          });
+
+          const emails = [];
+          const now = Date.now();
+          const maxAge = minutes * 60 * 1000;
+
+          fetch.on("message", (msg, seqno) => {
+            msg.on("body", (stream) => {
+              simpleParser(stream, (err, parsed) => {
+                if (err || !parsed) return;
+
+                // FILTER MENIT
+                const emailTime = parsed.date
+                  ? new Date(parsed.date).getTime()
+                  : now;
+
+                // if (now - emailTime > maxAge) return;
+
+                const keywords = this.extractKeywords(
+                  parsed.subject,
+                  parsed.text,
+                );
+
+                emails.push({
+                  id: parsed.messageId || `msg_${seqno}_${Date.now()}`,
+                  messageId: parsed.messageId,
+                  subject: parsed.subject || "",
+                  from_email: parsed.from?.text || "",
+                  to_email: parsed.to?.text || "",
+                  body: parsed.html || parsed.text || "",
+                  received_date: parsed.date
+                    ? parsed.date.toISOString()
+                    : new Date().toISOString(),
+                  keywords: keywords.join(","),
+                });
+              });
+            });
+          });
+
+          fetch.once("error", reject);
+          fetch.once("end", () => resolve(emails));
+        });
+      });
+    });
+  }
   // =====================================
   // EXTRACT KEYWORDS (NO OTP REGEX)
   // =====================================

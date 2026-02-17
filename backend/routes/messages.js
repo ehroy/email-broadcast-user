@@ -8,6 +8,7 @@ const router = express.Router();
 // Get messages (fetch langsung dari IMAP dan filter by user permissions)
 router.get("/", authenticateToken, async (req, res) => {
   const { search } = req.query;
+
   const user = req.user;
 
   try {
@@ -47,27 +48,43 @@ router.get("/", authenticateToken, async (req, res) => {
       // ======================================
       // FETCH DARI IMAP BERDASARKAN WHITELIST
       // ======================================
-      console.log({
-        to: search,
-        subject: allowedKeywords, // optional, boleh kirim biar server lebih cepat,
-      });
-      emails = await emailService.fetchRecentEmails({
-        to: allowedEmails,
-        subject: allowedKeywords, // optional, boleh kirim biar server lebih cepat,
-      });
-
-      console.log(
-        `User ${user.id} fetched ${emails.length} emails (before filter)`,
-      );
-
-      // ======================================
-      // FILTER KEYWORD LAGI (double security)
-      // ======================================
-      if (allowedKeywords.length) {
-        emails = emails.filter((email) => {
-          const subjectLower = email.subject.toLowerCase();
-          return allowedKeywords.some((ak) => subjectLower.includes(ak));
+      if (search) {
+        emails = await emailService.searchFetchRecentEmails({
+          search: search.toLowerCase(),
         });
+
+        console.log(
+          `User ${user.id} fetched ${emails.length} emails (before filter)`,
+        );
+
+        // ======================================
+        // FILTER KEYWORD LAGI (double security)
+        // ======================================
+        if (allowedKeywords.length) {
+          emails = emails.filter((email) => {
+            const subjectLower = email.subject.toLowerCase();
+            return allowedKeywords.some((ak) => subjectLower.includes(ak));
+          });
+        }
+      } else {
+        emails = await emailService.fetchRecentEmails({
+          to: allowedEmails,
+          subject: allowedKeywords, // optional, boleh kirim biar server lebih cepat,
+        });
+
+        console.log(
+          `User ${user.id} fetched ${emails.length} emails (before filter)`,
+        );
+
+        // ======================================
+        // FILTER KEYWORD LAGI (double security)
+        // ======================================
+        if (allowedKeywords.length) {
+          emails = emails.filter((email) => {
+            const subjectLower = email.subject.toLowerCase();
+            return allowedKeywords.some((ak) => subjectLower.includes(ak));
+          });
+        }
       }
     }
 
