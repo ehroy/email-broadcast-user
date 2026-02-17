@@ -39,31 +39,31 @@ router.post("/login", (req, res) => {
 });
 
 // Get current user
-router.get("/me", authenticateToken, (req, res) => {
-  const user = db
-    .prepare("SELECT id, username, role FROM users WHERE id = ?")
-    .get(req.user.id);
+// router.get("/me", authenticateToken, (req, res) => {
+//   const user = db
+//     .prepare("SELECT id, username, role FROM users WHERE id = ?")
+//     .get(req.user.id);
 
-  if (!user) {
-    return res.status(404).json({ error: "User tidak ditemukan" });
-  }
+//   if (!user) {
+//     return res.status(404).json({ error: "User tidak ditemukan" });
+//   }
 
-  // Get user permissions
-  let permissions = null;
-  if (user.role === "user") {
-    permissions = db
-      .prepare(
-        "SELECT allowed_keywords, allowed_emails FROM user_permissions WHERE user_id = ?",
-      )
-      .get(user.id);
-  }
+//   // Get user permissions
+//   let permissions = null;
+//   if (user.role === "user") {
+//     permissions = db
+//       .prepare(
+//         "SELECT allowed_keywords, allowed_emails FROM user_permissions WHERE user_id = ?",
+//       )
+//       .get(user.id);
+//   }
 
-  res.json({
-    ...user,
-    allowedKeywords: permissions?.allowed_keywords || "",
-    allowedEmails: permissions?.allowed_emails || "",
-  });
-});
+//   res.json({
+//     ...user,
+//     allowedKeywords: permissions?.allowed_keywords || "",
+//     allowedEmails: permissions?.allowed_emails || "",
+//   });
+// });
 
 // Create user (admin only)
 router.post("/users", authenticateToken, requireAdmin, (req, res) => {
@@ -171,5 +171,52 @@ router.delete("/users/:id", authenticateToken, requireAdmin, (req, res) => {
     res.status(500).json({ error: "Gagal menghapus user" });
   }
 });
+// ─── Tambahan di route GET /me (auth.js) ────────────────────────────────────
+// Ganti bagian GET /me yang ada dengan kode ini agar response juga menyertakan
+// allowed_subjects untuk user biasa.
 
+router.get("/me", authenticateToken, (req, res) => {
+  const user = db
+    .prepare("SELECT id, username, role FROM users WHERE id = ?")
+    .get(req.user.id);
+
+  if (!user) {
+    return res.status(404).json({ error: "User tidak ditemukan" });
+  }
+
+  // Get user permissions
+  let permissions = null;
+  if (user.role === "user") {
+    permissions = db
+      .prepare(
+        "SELECT allowed_keywords, allowed_emails FROM user_permissions WHERE user_id = ?",
+      )
+      .get(user.id);
+  }
+
+  // ─── BARU: Ambil subjects yang diaktifkan untuk user ini ─────────────────
+  let allowedSubjects = [];
+  if (user.role === "user") {
+    allowedSubjects = db
+      .prepare(
+        `SELECT s.id, s.name, s.pattern
+         FROM subjects s
+         INNER JOIN user_subjects us ON s.id = us.subject_id
+         WHERE us.user_id = ? AND us.is_enabled = 1 AND s.is_active = 1`,
+      )
+      .all(user.id);
+  } else {
+    // Admin mendapat semua subjects
+    allowedSubjects = db
+      .prepare("SELECT id, name, pattern FROM subjects WHERE is_active = 1")
+      .all();
+  }
+
+  res.json({
+    ...user,
+    allowedKeywords: permissions?.allowed_keywords || "",
+    allowedEmails: permissions?.allowed_emails || "",
+    allowedSubjects, // ← array of { id, name, pattern }
+  });
+});
 module.exports = router;
