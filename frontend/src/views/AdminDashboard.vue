@@ -708,7 +708,8 @@ const categorizeMessage = (message) => {
   if (
     combined.includes("reset") ||
     combined.includes("lupa") ||
-    combined.includes("forgot")
+    combined.includes("forgot") ||
+    combined.includes("mengatur ulangsandi")
   )
     return "forgot_password";
   if (
