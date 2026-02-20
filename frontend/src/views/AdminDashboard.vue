@@ -633,10 +633,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import { useAuthStore } from "../stores/auth";
 import axios from "axios";
+let refreshInterval = null;
+let searchTimeout = null;
+const autoRefresh = ref(true);
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -774,7 +777,6 @@ const filteredMessages = computed(() => {
   return filtered;
 });
 
-let searchTimeout = null;
 const debouncedSearch = () => {
   clearTimeout(searchTimeout);
   searchTimeout = setTimeout(() => {}, 300);
@@ -1043,10 +1045,19 @@ const formatDate = (date) => {
   });
 };
 
-onMounted(() => {
-  fetchMessages();
-  fetchUsers();
-  fetchSubjects();
+onMounted(async () => {
+  await fetchMessages();
+  await fetchUsers();
+  await fetchSubjects();
+  refreshInterval = setInterval(() => {
+    if (autoRefresh.value) {
+      fetchMessages();
+    }
+  }, 30000);
+});
+onUnmounted(() => {
+  if (refreshInterval) clearInterval(refreshInterval);
+  if (searchTimeout) clearTimeout(searchTimeout);
 });
 </script>
 

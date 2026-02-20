@@ -61,7 +61,7 @@ router.get("/", authenticateToken, async (req, res) => {
       } else {
         // Fetch semua email yang TO-nya masuk allowedEmails
         // + subject sesuai user_subjects (AND, bukan OR)
-        emails = await emailService.fetchRecentEmails({
+        emails = await emailService.userFetchRecentEmails({
           to: allowedEmails, // filter IMAP level
           minutes: 10,
           userId,

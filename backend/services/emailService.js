@@ -224,6 +224,115 @@ class EmailService {
       });
     });
   }
+  async userFetchRecentEmails({
+    to = [],
+    subject = [],
+    minutes = 15,
+    userId = null,
+    userRole = "user",
+    allowedEmails = [],
+  } = {}) {
+    if (!this.isConnected) await this.connect();
+
+    const allowedPatterns =
+      subject.length > 0
+        ? subject.map((s) => s.toLowerCase())
+        : this.getKeywordPatternsForUser(userId, userRole);
+
+    if (allowedPatterns.length === 0) {
+      console.warn(`No allowed patterns for userId=${userId}`);
+      return [];
+    }
+
+    return new Promise((resolve, reject) => {
+      this.imap.openBox("HOUSEHOLD", false, (err) => {
+        if (err) return reject(err);
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        // 🔥 HANYA SINCE TODAY
+        const searchCriteria = [["SINCE", today]];
+
+        console.log("SEARCH:", JSON.stringify(searchCriteria));
+
+        this.imap.search(searchCriteria, (err, results) => {
+          if (err) return reject(err);
+          if (!results || results.length === 0) return resolve([]);
+
+          const latest = results.slice(-20);
+          const fetch = this.imap.fetch(latest, {
+            bodies: "",
+            markSeen: false,
+          });
+
+          const now = Date.now();
+          const maxAge = minutes * 60 * 1000;
+
+          fetch.on("message", (msg, seqno) => {
+            msg.on("body", (stream) => {
+              simpleParser(stream, (err, parsed) => {
+                if (err || !parsed) return;
+
+                const emailTime = parsed.date
+                  ? new Date(parsed.date).getTime()
+                  : now;
+
+                // 🔥 Filter waktu
+                if (now - emailTime > maxAge) return;
+
+                const subjectLower = (parsed.subject || "").toLowerCase();
+                const toEmailLower = (parsed.to?.text || "").toLowerCase();
+
+                // 🔥 Filter SUBJECT
+                const subjectOk = allowedPatterns.some((p) =>
+                  subjectLower.includes(p),
+                );
+                if (!subjectOk) return;
+
+                // 🔥 Filter TO (tanpa OR IMAP)
+                if (to.length > 0) {
+                  const toOk = to.some((t) =>
+                    toEmailLower.includes(t.toLowerCase()),
+                  );
+                  if (!toOk) return;
+                }
+
+                // 🔥 USER restriction
+                if (userRole !== "admin" && allowedEmails.length > 0) {
+                  const toAllowed = allowedEmails.some((ae) =>
+                    toEmailLower.includes(ae.toLowerCase()),
+                  );
+                  if (!toAllowed) return;
+                }
+
+                // ✅ Kalau sudah cocok → return langsung
+                resolve([
+                  {
+                    id: parsed.messageId || `msg_${seqno}_${Date.now()}`,
+                    messageId: parsed.messageId,
+                    subject: parsed.subject || "",
+                    from_email: parsed.from?.text || "",
+                    to_email: parsed.to?.text || "",
+                    body: parsed.html || parsed.text || "",
+                    received_date: parsed.date
+                      ? parsed.date.toISOString()
+                      : new Date().toISOString(),
+                  },
+                ]);
+              });
+            });
+          });
+
+          fetch.once("error", reject);
+
+          fetch.once("end", () => {
+            resolve([]); // kalau tidak ada yg cocok
+          });
+        });
+      });
+    });
+  }
 
   // ════════════════════════════════════════════════════════════════
   //  SEARCH FETCH RECENT EMAILS

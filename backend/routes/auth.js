@@ -219,4 +219,81 @@ router.get("/me", authenticateToken, (req, res) => {
     allowedSubjects, // ← array of { id, name, pattern }
   });
 });
+// ─── Update password sendiri (semua role) ────────────────────────────────────
+router.put("/me/password", authenticateToken, (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+
+  if (!currentPassword || !newPassword) {
+    return res
+      .status(400)
+      .json({ error: "Password lama dan baru harus diisi" });
+  }
+
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: "Password baru minimal 6 karakter" });
+  }
+
+  const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
+
+  if (!user || !bcrypt.compareSync(currentPassword, user.password)) {
+    return res.status(401).json({ error: "Password lama tidak sesuai" });
+  }
+
+  const hashedPassword = bcrypt.hashSync(newPassword, 10);
+
+  try {
+    db.prepare("UPDATE users SET password = ? WHERE id = ?").run(
+      hashedPassword,
+      req.user.id,
+    );
+
+    res.json({ message: "Password berhasil diubah" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Gagal mengubah password" });
+  }
+});
+
+// ─── Reset password user oleh admin ──────────────────────────────────────────
+router.put(
+  "/users/:id/password",
+  authenticateToken,
+  requireAdmin,
+  (req, res) => {
+    const { id } = req.params;
+    const { newPassword } = req.body;
+
+    if (!newPassword) {
+      return res.status(400).json({ error: "Password baru harus diisi" });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: "Password minimal 6 karakter" });
+    }
+
+    const user = db
+      .prepare("SELECT * FROM users WHERE id = ? AND role = 'user'")
+      .get(id);
+
+    if (!user) {
+      return res.status(404).json({ error: "User tidak ditemukan" });
+    }
+
+    const hashedPassword = bcrypt.hashSync(newPassword, 10);
+
+    try {
+      db.prepare("UPDATE users SET password = ? WHERE id = ?").run(
+        hashedPassword,
+        id,
+      );
+
+      res.json({
+        message: `Password user '${user.username}' berhasil direset`,
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Gagal mereset password" });
+    }
+  },
+);
 module.exports = router;
