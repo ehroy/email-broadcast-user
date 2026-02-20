@@ -4,6 +4,7 @@ const cors = require("cors");
 const emailService = require("./services/emailService");
 const authRoutes = require("./routes/auth");
 const messageRoutes = require("./routes/messages");
+const subject = require("./routes/subject");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,7 +16,7 @@ app.use(express.json());
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/messages", messageRoutes);
-
+app.use("/api/subjects", subject);
 // Health check
 app.get("/api/health", (req, res) => {
   res.json({
