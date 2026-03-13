@@ -1,6 +1,7 @@
 const Database = require("better-sqlite3");
 const bcrypt = require("bcryptjs");
 const path = require("path");
+require("dotenv").config();
 
 const db = new Database(path.join(__dirname, "database.db"));
 
@@ -119,15 +120,23 @@ function initDatabase() {
   }
 
   // Create default admin if not exists
+  const adminUsername = process.env.ADMIN_USERNAME;
+  const adminPassword = process.env.ADMIN_PASSWORD;
+
   const adminExists = db
     .prepare("SELECT * FROM users WHERE username = ?")
-    .get("admin");
+    .get(adminUsername);
+
   if (!adminExists) {
-    const hashedPassword = bcrypt.hashSync("admin123", 10);
+    const hashedPassword = bcrypt.hashSync(adminPassword, 10);
+
     db.prepare(
       "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
-    ).run("admin", hashedPassword, "admin");
-    console.log("Default admin created: username=admin, password=admin123");
+    ).run(adminUsername, hashedPassword, "admin");
+
+    console.log(
+      `Default admin created: username=${adminUsername}, password=${adminPassword}`,
+    );
   }
 }
 

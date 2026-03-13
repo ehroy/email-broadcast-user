@@ -255,44 +255,41 @@ router.put("/me/password", authenticateToken, (req, res) => {
 });
 
 // ─── Reset password user oleh admin ──────────────────────────────────────────
+// PUT /api/auth/users/:id/password
+// PUT /api/auth/users/:id/password
 router.put(
   "/users/:id/password",
   authenticateToken,
   requireAdmin,
-  (req, res) => {
+  async (req, res) => {
     const { id } = req.params;
-    const { newPassword } = req.body;
+    const { password } = req.body;
 
-    if (!newPassword) {
-      return res.status(400).json({ error: "Password baru harus diisi" });
+    if (!password || password.length < 6) {
+      return res
+        .status(400)
+        .json({ error: "Password must be at least 6 characters" });
     }
-
-    if (newPassword.length < 6) {
-      return res.status(400).json({ error: "Password minimal 6 karakter" });
-    }
-
-    const user = db
-      .prepare("SELECT * FROM users WHERE id = ? AND role = 'user'")
-      .get(id);
-
-    if (!user) {
-      return res.status(404).json({ error: "User tidak ditemukan" });
-    }
-
-    const hashedPassword = bcrypt.hashSync(newPassword, 10);
 
     try {
+      // Cek user ada
+      const user = db.prepare("SELECT id FROM users WHERE id = ?").get(id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      // better-sqlite3 pakai .prepare().run()
       db.prepare("UPDATE users SET password = ? WHERE id = ?").run(
         hashedPassword,
         id,
       );
 
-      res.json({
-        message: `Password user '${user.username}' berhasil direset`,
-      });
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: "Gagal mereset password" });
+      return res.json({ message: "Password updated successfully" });
+    } catch (error) {
+      console.error("Error updating password:", error);
+      return res.status(500).json({ error: "Internal server error" });
     }
   },
 );

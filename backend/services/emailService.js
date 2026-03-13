@@ -305,7 +305,11 @@ class EmailService {
                   );
                   if (!toAllowed) return;
                 }
-
+                const keywords = this.extractKeywords(
+                  parsed.subject,
+                  parsed.text,
+                  allowedPatterns,
+                );
                 // ✅ Kalau sudah cocok → return langsung
                 resolve([
                   {
@@ -318,6 +322,7 @@ class EmailService {
                     received_date: parsed.date
                       ? parsed.date.toISOString()
                       : new Date().toISOString(),
+                    keywords: keywords.join(","),
                   },
                 ]);
               });
@@ -364,6 +369,7 @@ class EmailService {
     // Untuk user: search harus ada di dalam allowedEmails
     if (userRole !== "admin" && allowedEmails.length > 0 && search) {
       const searchLower = search.toLowerCase();
+      console.log(searchLower);
       const isEmailAllowed = allowedEmails.some(
         (ae) => searchLower.includes(ae) || ae.includes(searchLower),
       );
@@ -383,10 +389,6 @@ class EmailService {
         today.setHours(0, 0, 0, 0);
 
         const searchCriteria = [["SINCE", today]];
-
-        if (search) {
-          searchCriteria.push(["TO", search]);
-        }
 
         console.log(
           "searchFetchRecentEmails SEARCH:",
