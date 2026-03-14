@@ -365,11 +365,10 @@ class EmailService {
       );
       return [];
     }
-
+    let searchLower;
     // Untuk user: search harus ada di dalam allowedEmails
     if (userRole !== "admin" && allowedEmails.length > 0 && search) {
-      const searchLower = search.toLowerCase();
-      console.log(searchLower);
+      searchLower = search.toLowerCase();
       const isEmailAllowed = allowedEmails.some(
         (ae) => searchLower.includes(ae) || ae.includes(searchLower),
       );
@@ -389,11 +388,6 @@ class EmailService {
         today.setHours(0, 0, 0, 0);
 
         const searchCriteria = [["SINCE", today]];
-
-        console.log(
-          "searchFetchRecentEmails SEARCH:",
-          JSON.stringify(searchCriteria),
-        );
 
         this.imap.search(searchCriteria, (err, results) => {
           if (err) return reject(err);
@@ -421,6 +415,8 @@ class EmailService {
 
                 const subjectLower = (parsed.subject || "").toLowerCase();
                 const toEmailLower = (parsed.to?.text || "").toLowerCase();
+                const fromEmailLower = (parsed.from?.text || "").toLowerCase();
+                const bodyLower = (parsed.text || "").toLowerCase();
 
                 // ── Filter 1: subject harus cocok dengan pattern yang diizinkan ──
                 const subjectOk = allowedPatterns.some((p) =>
@@ -435,7 +431,17 @@ class EmailService {
                   );
                   if (!toOk) return;
                 }
-
+                if (
+                  searchLower &&
+                  !(
+                    subjectLower.includes(searchLower) ||
+                    toEmailLower.includes(searchLower) ||
+                    fromEmailLower.includes(searchLower) ||
+                    bodyLower.includes(searchLower)
+                  )
+                ) {
+                  return;
+                }
                 const keywords = this.extractKeywords(
                   parsed.subject,
                   parsed.text,

@@ -226,10 +226,18 @@
             <input
               v-model="searchQuery"
               type="text"
-              placeholder="SEARCH MESSAGES..."
+              placeholder="SEARCH MESSAGES WITH EMAIL..."
               @input="debouncedSearch"
             />
           </div>
+          <button
+            v-if="activeCategory || searchQuery"
+            @click="clearFilters"
+            class="btn-clear"
+          >
+            <span class="icon">✕</span>
+            <span>CLEAR</span>
+          </button>
           <button @click="fetchMessages" class="btn-refresh">
             <span class="icon">↻</span>
             <span>REFRESH</span>
@@ -503,16 +511,14 @@
               <label>PASSWORD</label>
               <input v-model="newUser.password" type="password" required />
             </div>
+            <!-- Modal Create User -->
             <div class="form-field">
               <label>ALLOWED EMAILS *</label>
-              <input
-                v-model="newUser.allowedEmails"
-                type="text"
-                placeholder="email1@example.com, email2@example.com"
-                required
-              />
-              <small>Separate multiple emails with commas</small>
+              <EmailListInput v-model="newUser.allowedEmails" />
             </div>
+
+            <!-- Modal Edit User -->
+
             <div class="form-field">
               <label>ALLOWED KEYWORDS</label>
               <input
@@ -575,12 +581,7 @@
           <form @submit.prevent="updatePermissions" class="modal-form">
             <div class="form-field">
               <label>ALLOWED EMAILS *</label>
-              <input
-                v-model="editingUser.allowed_emails"
-                type="text"
-                required
-              />
-              <small>Separate multiple emails with commas</small>
+              <EmailListInput v-model="editingUser.allowed_emails_arr" />
             </div>
             <div class="form-field">
               <label>ALLOWED KEYWORDS</label>
@@ -853,10 +854,11 @@ import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import { useAuthStore } from "../stores/auth";
 import axios from "axios";
+import EmailListInput from "../components/EmailListInput.vue";
 let refreshInterval = null;
 let searchTimeout = null;
 const autoRefresh = ref(true);
-
+const activeCategory = ref(null);
 const router = useRouter();
 const authStore = useAuthStore();
 // ── Change Password state ─────────────────────────────────────────────────
@@ -889,6 +891,10 @@ const submitChangePassword = async () => {
   } catch (error) {
     alert(error.response?.data?.error || "Failed to update password");
   }
+};
+const clearFilters = () => {
+  activeCategory.value = null;
+  searchQuery.value = "";
 };
 // ── Admin self-change password ───────────────────────────────────────────
 const adminPwForm = ref({
@@ -1170,7 +1176,7 @@ const createUser = async () => {
       username: newUser.value.username,
       password: newUser.value.password,
       allowedKeywords: newUser.value.allowedKeywords,
-      allowedEmails: newUser.value.allowedEmails,
+      allowedEmails: newUser.value.allowedEmails.join(","),
     });
 
     const userId = res.data.userId;
@@ -1190,15 +1196,25 @@ const createUser = async () => {
   }
 };
 
-const editUserPermissions = (user) => {
-  editingUser.value = { ...user };
-};
+// Create user
 
+// Edit user — parse string → array saat buka modal
+const editUserPermissions = (user) => {
+  editingUser.value = {
+    ...user,
+    allowed_emails_arr: user.allowed_emails
+      ? user.allowed_emails
+          .split(",")
+          .map((e) => e.trim())
+          .filter(Boolean)
+      : [],
+  };
+};
 const updatePermissions = async () => {
   try {
     await axios.put(`/api/auth/users/${editingUser.value.id}/permissions`, {
       allowedKeywords: editingUser.value.allowed_keywords,
-      allowedEmails: editingUser.value.allowed_emails,
+      allowedEmails: editingUser.value.allowed_emails_arr.join(","),
     });
     alert("Permissions updated successfully!");
     editingUser.value = null;

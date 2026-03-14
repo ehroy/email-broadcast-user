@@ -49,16 +49,65 @@
           <h3>YOUR ACCESS PERMISSIONS</h3>
         </div>
         <div class="permission-grid">
+          <!-- Allowed Emails -->
           <div v-if="authStore.user?.allowedEmails" class="permission-item">
             <div class="permission-label">📧 ALLOWED EMAILS</div>
-            <div class="permission-value">
-              {{ authStore.user.allowedEmails }}
+            <div class="permission-emails">
+              <div
+                v-for="(email, index) in emailList.slice(0, visibleEmailCount)"
+                :key="index"
+                class="email-pill"
+              >
+                <span class="email-icon">@</span>
+                <span class="email-text">{{ email }}</span>
+              </div>
+
+              <div v-if="emailList.length > 10" class="show-more-row">
+                <!-- Show more -->
+                <button
+                  v-if="visibleEmailCount < emailList.length"
+                  class="btn-show-more"
+                  @click="
+                    visibleEmailCount = Math.min(
+                      visibleEmailCount + 10,
+                      emailList.length,
+                    )
+                  "
+                >
+                  ▼ LIHAT
+                  {{ Math.min(emailList.length - visibleEmailCount, 10) }}
+                  LAGI
+                  <span class="show-more-meta">
+                    ({{ visibleEmailCount }}/{{ emailList.length }})
+                  </span>
+                </button>
+
+                <!-- Show less -->
+                <button
+                  v-if="visibleEmailCount > 10"
+                  class="btn-show-less"
+                  @click="visibleEmailCount = 10"
+                >
+                  ▲ SEMBUNYIKAN
+                </button>
+              </div>
             </div>
           </div>
+
+          <!-- Allowed Keywords -->
           <div v-if="authStore.user?.allowedKeywords" class="permission-item">
             <div class="permission-label">🔑 ALLOWED KEYWORDS</div>
-            <div class="permission-value">
-              {{ authStore.user.allowedKeywords }}
+            <div class="permission-keywords">
+              <span
+                v-for="(kw, index) in authStore.user.allowedKeywords
+                  .split(',')
+                  .map((k) => k.trim())
+                  .filter(Boolean)"
+                :key="index"
+                class="keyword-pill"
+              >
+                {{ kw }}
+              </span>
             </div>
           </div>
         </div>
@@ -388,7 +437,7 @@ import axios from "axios";
 
 const router = useRouter();
 const authStore = useAuthStore();
-
+const showAllEmails = ref(false);
 const messages = ref([]);
 const selectedMessage = ref(null);
 const activeCategory = ref(null);
@@ -396,7 +445,14 @@ const searchQuery = ref("");
 const loading = ref(false);
 const autoRefresh = ref(true);
 const lastUpdate = ref("Never");
+const visibleEmailCount = ref(10);
 
+const emailList = computed(() =>
+  (authStore.user?.allowedEmails || "")
+    .split(",")
+    .map((e) => e.trim())
+    .filter(Boolean),
+);
 let refreshInterval = null;
 let searchTimeout = null;
 // ── Change Password ──────────────────────────────────────────────────────
@@ -716,7 +772,61 @@ onUnmounted(() => {
 .pw-modal {
   max-width: 500px;
 }
+.show-more-row {
+  display: flex;
+  gap: 8px;
+}
 
+.btn-show-more {
+  flex: 1;
+  background: #f5f5f0;
+  border: 3px solid #000;
+  padding: 9px 14px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-family: inherit;
+  transition: all 0.1s;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btn-show-more:hover {
+  background: #ffeb3b;
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.08);
+}
+
+.btn-show-less {
+  background: #f5f5f0;
+  border: 3px solid #000;
+  padding: 9px 14px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-family: inherit;
+  transition: all 0.1s;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.08);
+}
+
+.btn-show-less:hover {
+  background: #000;
+  color: #fff;
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.08);
+}
+
+.show-more-meta {
+  opacity: 0.5;
+  font-size: 10px;
+}
 .pw-user-info {
   display: flex;
   align-items: center;
@@ -832,7 +942,26 @@ onUnmounted(() => {
   background: #e8e8e4;
   border: 2px solid #000;
 }
+.btn-show-more {
+  width: 100%;
+  background: #f5f5f0;
+  border: 3px solid #000;
+  padding: 8px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-family: inherit;
+  transition: all 0.1s;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.08);
+}
 
+.btn-show-more:hover {
+  background: #ffeb3b;
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.08);
+}
 .pw-strength-fill {
   height: 100%;
   transition:
@@ -1027,7 +1156,72 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
 }
+/* Permission pills */
+.permission-emails {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
 
+.email-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff;
+  border: 3px solid #000;
+  padding: 9px 14px;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.08);
+  transition:
+    transform 0.1s,
+    box-shadow 0.1s;
+}
+
+.email-pill:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.08);
+}
+
+.email-icon {
+  font-size: 13px;
+  font-weight: 900;
+  color: #fff;
+  background: #000;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-style: normal;
+}
+
+.email-text {
+  font-size: 13px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: monospace;
+}
+
+.permission-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.keyword-pill {
+  background: #ffeb3b;
+  border: 3px solid #000;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.1);
+}
 .btn-settings {
   background: #4ecdc4;
   color: #000;
