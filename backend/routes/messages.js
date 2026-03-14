@@ -22,7 +22,7 @@ router.get("/", authenticateToken, async (req, res) => {
     // ── ADMIN ─────────────────────────────────────────────────────
     if (userRole === "admin") {
       emails = await emailService.fetchRecentEmails({
-        minutes: 120,
+        minutes: 15,
         userId,
         userRole,
         // allowedEmails kosong → admin tidak dibatasi TO
@@ -53,7 +53,7 @@ router.get("/", authenticateToken, async (req, res) => {
         // lalu filter subject sesuai user_subjects
         emails = await emailService.searchFetchRecentEmails({
           search: search.toLowerCase().trim(),
-          minutes: 120,
+          minutes: 15,
           userId,
           userRole,
           allowedEmails, // ← double-filter: search harus masuk whitelist TO
@@ -63,7 +63,7 @@ router.get("/", authenticateToken, async (req, res) => {
         // + subject sesuai user_subjects (AND, bukan OR)
         emails = await emailService.userFetchRecentEmails({
           to: allowedEmails, // filter IMAP level
-          minutes: 120,
+          minutes: 15,
           userId,
           userRole,
           allowedEmails, // ← double-filter saat parsing hasil IMAP
