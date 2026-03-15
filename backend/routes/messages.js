@@ -6,8 +6,25 @@ const { authenticateToken } = require("../middleware/auth");
 const router = express.Router();
 
 // ════════════════════════════════════════════════════════════════
+//  HELPER — ambil allowedEmails user dari DB
+//  Return null kalau user tidak punya permission sama sekali
+// ════════════════════════════════════════════════════════════════
+function getAllowedEmails(userId) {
+  const permissions = db
+    .prepare("SELECT allowed_emails FROM user_permissions WHERE user_id = ?")
+    .get(userId);
+
+  if (!permissions?.allowed_emails?.trim()) return null;
+
+  return permissions.allowed_emails
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+// ════════════════════════════════════════════════════════════════
 //  GET /api/messages
-//  Admin  → fetch semua, filter by subjects aktif di DB
+//  Admin  → fetch semua email aktif, optional filter search
 //  User   → HARUS lolos dua filter:
 //            1. to_email ada di allowed_emails user
 //            2. subject cocok dengan subjects yang di-enable user
@@ -22,67 +39,56 @@ router.get("/", authenticateToken, async (req, res) => {
     // ── ADMIN ─────────────────────────────────────────────────────
     if (userRole === "admin") {
       emails = await emailService.fetchRecentEmails({
-        minutes: 15,
+        minutes: 10,
         userId,
         userRole,
         // allowedEmails kosong → admin tidak dibatasi TO
       });
+
+      // Filter teks tambahan dari search bar
+      if (search) {
+        const q = search.toLowerCase().trim();
+        emails = emails.filter(
+          (e) =>
+            e.subject.toLowerCase().includes(q) ||
+            e.from_email.toLowerCase().includes(q) ||
+            e.to_email.toLowerCase().includes(q) ||
+            e.keywords.toLowerCase().includes(q),
+        );
+      }
     }
 
     // ── USER ──────────────────────────────────────────────────────
     else {
-      const permissions = db
-        .prepare(
-          "SELECT allowed_emails FROM user_permissions WHERE user_id = ?",
-        )
-        .get(userId);
+      const allowedEmails = getAllowedEmails(userId);
 
       // User tanpa allowed_emails tidak bisa lihat apapun
-      if (!permissions?.allowed_emails?.trim()) {
+      if (!allowedEmails) {
         return res.json([]);
       }
 
-      const allowedEmails = permissions.allowed_emails
-        .split(",")
-        .map((e) => e.trim().toLowerCase())
-        .filter(Boolean);
-
       if (search) {
-        // Cari berdasarkan TO = search
-        // emailService akan validasi: search harus ada di allowedEmails user
-        // lalu filter subject sesuai user_subjects
+        // Search: fetch lalu filter by search term
+        // Validasi bahwa search masuk allowedEmails dilakukan di emailService
         emails = await emailService.searchFetchRecentEmails({
           search: search.toLowerCase().trim(),
-          minutes: 15,
+          minutes: 10,
           userId,
           userRole,
-          allowedEmails, // ← double-filter: search harus masuk whitelist TO
+          allowedEmails,
         });
       } else {
-        // Fetch semua email yang TO-nya masuk allowedEmails
-        // + subject sesuai user_subjects (AND, bukan OR)
+        // Fetch semua email TO yang masuk allowedEmails + subject sesuai user_subjects
         emails = await emailService.userFetchRecentEmails({
-          to: allowedEmails, // filter IMAP level
-          minutes: 15,
+          to: allowedEmails,
+          minutes: 10,
           userId,
           userRole,
-          allowedEmails, // ← double-filter saat parsing hasil IMAP
+          allowedEmails,
         });
       }
 
       console.log(`User ${userId} fetched ${emails.length} emails`);
-    }
-
-    // ── FILTER TEKS TAMBAHAN untuk admin (search bar frontend) ────
-    if (search && userRole === "admin") {
-      const q = search.toLowerCase();
-      emails = emails.filter(
-        (e) =>
-          e.subject.toLowerCase().includes(q) ||
-          e.from_email.toLowerCase().includes(q) ||
-          e.to_email.toLowerCase().includes(q) ||
-          e.keywords.toLowerCase().includes(q),
-      );
     }
 
     // ── SORT TERBARU DULU ─────────────────────────────────────────
@@ -100,8 +106,8 @@ router.get("/", authenticateToken, async (req, res) => {
 
 // ════════════════════════════════════════════════════════════════
 //  GET /api/messages/:id
-//  Ambil satu pesan — emailService sudah filter dua lapis,
-//  jika pesan ada dalam hasil berarti sudah lolos akses.
+//  Ambil satu pesan — cari dari cache fetchRecentEmails
+//  Menggunakan minutes: 10 agar konsisten dengan list endpoint
 // ════════════════════════════════════════════════════════════════
 router.get("/:id", authenticateToken, async (req, res) => {
   const { id } = req.params;
@@ -111,22 +117,16 @@ router.get("/:id", authenticateToken, async (req, res) => {
     let allowedEmails = [];
 
     if (userRole !== "admin") {
-      const permissions = db
-        .prepare(
-          "SELECT allowed_emails FROM user_permissions WHERE user_id = ?",
-        )
-        .get(userId);
+      const emails_allowed = getAllowedEmails(userId);
 
-      if (!permissions?.allowed_emails?.trim()) {
+      if (!emails_allowed) {
         return res.status(403).json({ error: "Anda tidak memiliki akses" });
       }
 
-      allowedEmails = permissions.allowed_emails
-        .split(",")
-        .map((e) => e.trim().toLowerCase())
-        .filter(Boolean);
+      allowedEmails = emails_allowed;
     }
 
+    // Fetch dengan window sama seperti list → kemungkinan besar hit cache
     const emails = await emailService.fetchRecentEmails({
       minutes: 10,
       userId,
@@ -145,6 +145,30 @@ router.get("/:id", authenticateToken, async (req, res) => {
     console.error("Error fetching message:", err);
     res.status(500).json({ error: "Gagal mengambil pesan" });
   }
+});
+
+// ════════════════════════════════════════════════════════════════
+//  POST /api/messages/cache/clear  (admin only)
+//  Force refresh cache tanpa restart server
+// ════════════════════════════════════════════════════════════════
+router.post("/cache/clear", authenticateToken, (req, res) => {
+  const { role: userRole, id: userId } = req.user;
+
+  if (userRole !== "admin") {
+    return res.status(403).json({ error: "Hanya admin yang bisa clear cache" });
+  }
+
+  const { target_user_id } = req.body;
+
+  if (target_user_id) {
+    emailService.clearCache(target_user_id);
+    return res.json({
+      message: `Cache cleared untuk userId=${target_user_id}`,
+    });
+  }
+
+  emailService.clearCache(); // clear semua
+  res.json({ message: "Semua cache berhasil di-clear" });
 });
 
 // ════════════════════════════════════════════════════════════════

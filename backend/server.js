@@ -1,10 +1,11 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const emailService = require("./services/emailService");
 const authRoutes = require("./routes/auth");
 const messageRoutes = require("./routes/messages");
 const subject = require("./routes/subject");
+const emailService = require("./services/emailService");
+emailService.startBackgroundRefresh(30); // refresh tiap 30 detik
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,7 +13,22 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use((req, res, next) => {
+  const start = Date.now();
+  const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
 
+  console.log(`➡️  ${req.method} ${req.originalUrl} | IP: ${ip}`);
+
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+
+    console.log(
+      `⬅️  ${req.method} ${req.originalUrl} | ${res.statusCode} | ${duration}ms`,
+    );
+  });
+
+  next();
+});
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/messages", messageRoutes);
