@@ -101,98 +101,103 @@ class EmailService {
   //                                (diisi untuk role "user", kosong untuk admin)
   // ════════════════════════════════════════════════════════════════
   async fetchRecentEmails({
-    to = [],
-    subject = [],
-    minutes = 15,
-    userId = null,
-    userRole = "user",
-    allowedEmails = [],
-  } = {}) {
-    if (!this.isConnected) await this.connect();
+  to = [],
+  subject = [],
+  minutes = 15,
+  userId = null,
+  userRole = "user",
+  allowedEmails = [],
+} = {}) {
+  if (!this.isConnected) await this.connect();
 
-    const allowedPatterns =
-      subject.length > 0
-        ? subject.map((s) => s.toLowerCase())
-        : this.getKeywordPatternsForUser(userId, userRole);
+  const allowedPatterns =
+    subject.length > 0
+      ? subject.map((s) => s.toLowerCase())
+      : this.getKeywordPatternsForUser(userId, userRole);
 
-    if (allowedPatterns.length === 0) {
-      console.warn(
-        `fetchRecentEmails: no allowed patterns for userId=${userId}`,
-      );
-      return [];
-    }
+  if (allowedPatterns.length === 0) {
+    console.warn(
+      `fetchRecentEmails: no allowed patterns for userId=${userId}`,
+    );
+    return [];
+  }
 
-    return new Promise((resolve, reject) => {
-      this.imap.openBox("HOUSEHOLD", false, (err) => {
-        if (err) return reject(err);
+  return new Promise((resolve, reject) => {
+    this.imap.openBox("HOUSEHOLD", false, (err) => {
+      if (err) return reject(err);
 
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
 
-        const searchCriteria = [["SINCE", today]];
+      const searchCriteria = [["SINCE", today]];
 
-        const subjectOr = this.buildOr("SUBJECT", allowedPatterns);
-        const toOr = this.buildOr("TO", to);
+      const subjectOr = this.buildOr("SUBJECT", allowedPatterns);
+      const toOr = this.buildOr("TO", to);
 
-        // Admin: OR (subject cocok ATAU to cocok) — lebih luas
-        // User : AND — IMAP filter TO dulu, subject difilter saat parsing
-        if (userRole === "admin") {
-          if (subjectOr && toOr) {
-            searchCriteria.push(["OR", subjectOr, toOr]);
-          } else if (subjectOr) {
-            searchCriteria.push(subjectOr);
-          } else if (toOr) {
-            searchCriteria.push(toOr);
-          }
-        } else {
-          // User: filter TO di IMAP level (AND implisit karena array criteria)
-          if (toOr) searchCriteria.push(toOr);
-          if (subjectOr) searchCriteria.push(subjectOr);
+      if (userRole === "admin") {
+        if (subjectOr && toOr) {
+          searchCriteria.push(["OR", subjectOr, toOr]);
+        } else if (subjectOr) {
+          searchCriteria.push(subjectOr);
+        } else if (toOr) {
+          searchCriteria.push(toOr);
         }
+      } else {
+        if (toOr) searchCriteria.push(toOr);
+        if (subjectOr) searchCriteria.push(subjectOr);
+      }
 
-        console.log(
-          "fetchRecentEmails SEARCH:",
-          JSON.stringify(searchCriteria),
-        );
+      console.log(
+        "fetchRecentEmails SEARCH:",
+        JSON.stringify(searchCriteria),
+      );
 
-        this.imap.search(searchCriteria, (err, results) => {
-          if (err) return reject(err);
-          if (!results || results.length === 0) return resolve([]);
+      this.imap.search(searchCriteria, (err, results) => {
+        if (err) return reject(err);
+        if (!results || results.length === 0) return resolve([]);
 
-          const latest = results.slice(-10);
-          const fetch = this.imap.fetch(latest, {
-            bodies: "",
-            markSeen: false,
-          });
+        // ambil 10 email terbaru saja
+        const latest = results.slice(-10);
 
-          const emails = [];
-          const now = Date.now();
-          const maxAge = minutes * 60 * 1000;
+        const fetch = this.imap.fetch(latest, {
+          bodies: "",
+          markSeen: false,
+        });
 
-          fetch.on("message", (msg, seqno) => {
-            msg.on("body", (stream) => {
-              simpleParser(stream, (err, parsed) => {
-                if (err || !parsed) return;
+        const emails = [];
+        const now = Date.now();
+        const maxAge = minutes * 60 * 1000;
+
+        let pendingParsers = 0;
+
+        fetch.on("message", (msg, seqno) => {
+          msg.on("body", (stream) => {
+            pendingParsers++;
+
+            simpleParser(stream)
+              .then((parsed) => {
+                if (!parsed) return;
 
                 const emailTime = parsed.date
                   ? new Date(parsed.date).getTime()
                   : now;
+
                 if (now - emailTime > maxAge) return;
 
                 const subjectLower = (parsed.subject || "").toLowerCase();
                 const toEmailLower = (parsed.to?.text || "").toLowerCase();
 
-                // ── Filter 1: subject harus cocok dengan pattern yang diizinkan ──
                 const subjectOk = allowedPatterns.some((p) =>
                   subjectLower.includes(p),
                 );
+
                 if (!subjectOk) return;
 
-                // ── Filter 2 (user only): to_email harus masuk allowedEmails ──
                 if (userRole !== "admin" && allowedEmails.length > 0) {
                   const toOk = allowedEmails.some((ae) =>
                     toEmailLower.includes(ae),
                   );
+
                   if (!toOk) return;
                 }
 
@@ -214,16 +219,33 @@ class EmailService {
                     : new Date().toISOString(),
                   keywords: keywords.join(","),
                 });
-              });
-            });
-          });
+              })
+              .catch(() => {})
+              .finally(() => {
+                pendingParsers--;
 
-          fetch.once("error", reject);
-          fetch.once("end", () => resolve(emails));
+                if (pendingParsers === 0 && fetchEnded) {
+                  resolve(emails);
+                }
+              });
+          });
+        });
+
+        let fetchEnded = false;
+
+        fetch.once("error", reject);
+
+        fetch.once("end", () => {
+          fetchEnded = true;
+
+          if (pendingParsers === 0) {
+            resolve(emails);
+          }
         });
       });
     });
-  }
+  });
+}
   async userFetchRecentEmails({
     to = [],
     subject = [],
