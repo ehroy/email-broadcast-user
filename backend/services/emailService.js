@@ -417,7 +417,6 @@ class EmailService {
         console.log("[BG Refresh] Refreshing email cache...");
 
         // Invalidate dulu biar fetchRecentEmails fetch ulang ke IMAP
-        invalidateCache();
 
         // Fetch ulang untuk setiap user aktif
         const users = db.prepare("SELECT id, role FROM users").all();
@@ -441,7 +440,7 @@ class EmailService {
           }
 
           await this.fetchRecentEmails({
-            minutes: 120,
+            minutes: 10,
             userId: user.id,
             userRole: user.role,
             allowedEmails,
