@@ -1381,28 +1381,38 @@ const formatDate = (date) => {
   });
 };
 
-let running = true
+let running = false;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function startPolling() {
+  if (running) return; // cegah double polling
+
+  running = true;
+
   while (running) {
-    if (autoRefresh.value) {
-      await fetchMessages()
+    try {
+      if (autoRefresh.value && document.visibilityState === "visible") {
+        await fetchMessages();
+      }
+    } catch (err) {
+      console.error("Polling error:", err);
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 60000))
+    await sleep(120000); // 2 menit
   }
 }
 
 onMounted(async () => {
-  await fetchUsers()
-  await fetchSubjects()
+  await fetchUsers();
+  await fetchSubjects();
 
-  startPolling()
-})
+  startPolling();
+});
 
 onUnmounted(() => {
-  running = false
-})
+  running = false;
+});
 </script>
 
 <style scoped>

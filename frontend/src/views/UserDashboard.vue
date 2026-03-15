@@ -408,7 +408,9 @@
                 <span class="meta-label">KEYWORDS:</span>
                 <div class="meta-keywords">
                   <span
-                    v-for="keyword in selectedMessage.keywords"
+                    v-for="keyword in selectedMessage.keywords
+                      .split(',')
+                      .slice(0, 3)"
                     :key="keyword"
                     class="keyword-tag"
                   >
@@ -745,17 +747,31 @@ const formatDateFull = (date) => {
   });
 };
 
+let isFetching = false;
+
+const safeFetchMessages = async () => {
+  if (isFetching) return;
+
+  try {
+    isFetching = true;
+    await fetchMessages();
+  } finally {
+    isFetching = false;
+  }
+};
+
 onMounted(async () => {
   loading.value = true;
-  await authStore.fetchUser();
-  await fetchMessages();
 
-  // Auto-refresh every 10 seconds
+  await authStore.fetchUser();
+  await safeFetchMessages();
+
+  // Auto refresh
   refreshInterval = setInterval(() => {
-    if (autoRefresh.value) {
-      fetchMessages();
+    if (autoRefresh.value && !isFetching) {
+      safeFetchMessages();
     }
-  }, 10000);
+  }, 120000);
 });
 
 onUnmounted(() => {
