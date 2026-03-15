@@ -63,6 +63,8 @@ class EmailService {
         tls: process.env.IMAP_TLS === "true",
         tlsOptions: { rejectUnauthorized: false },
         keepalive: true,
+        connTimeout: 10000, // ← tambah ini, timeout connect 10 detik
+        authTimeout: 5000, // ← timeout auth 5 detik
       });
 
       this.imap.once("ready", () => {
@@ -126,8 +128,14 @@ class EmailService {
   // ════════════════════════════════════════════════════════════════
   // ENSURE READY — connect + openBox dalam satu helper
   // ════════════════════════════════════════════════════════════════
+  // Di emailService, perbaiki ensureReady()
   async ensureReady() {
-    if (!this.isConnected) await this.connect();
+    // Cek apakah koneksi masih benar-benar hidup
+    if (!this.isConnected || !this.imap || this.imap.state === "disconnected") {
+      this.isConnected = false;
+      this.boxOpened = false; // ← reset juga boxOpened
+      await this.connect();
+    }
     await this.openBoxIfNeeded();
   }
 
