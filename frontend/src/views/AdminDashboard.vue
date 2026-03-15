@@ -1381,20 +1381,28 @@ const formatDate = (date) => {
   });
 };
 
-onMounted(async () => {
-  await fetchMessages();
-  await fetchUsers();
-  await fetchSubjects();
-  refreshInterval = setInterval(() => {
+let running = true
+
+async function startPolling() {
+  while (running) {
     if (autoRefresh.value) {
-      fetchMessages();
+      await fetchMessages()
     }
-  }, 30000);
-});
+
+    await new Promise((resolve) => setTimeout(resolve, 60000))
+  }
+}
+
+onMounted(async () => {
+  await fetchUsers()
+  await fetchSubjects()
+
+  startPolling()
+})
+
 onUnmounted(() => {
-  if (refreshInterval) clearInterval(refreshInterval);
-  if (searchTimeout) clearTimeout(searchTimeout);
-});
+  running = false
+})
 </script>
 
 <style scoped>
