@@ -97,6 +97,7 @@ router.get("/", authenticateToken, async (req, res) => {
     );
 
     console.log(`Final result: ${emails.length} emails for userId=${userId}`);
+    console.log(emails);
     res.json(emails);
   } catch (err) {
     console.error("Error fetching messages:", err);
