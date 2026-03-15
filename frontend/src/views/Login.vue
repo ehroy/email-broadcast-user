@@ -345,7 +345,6 @@ input {
   background: #fff;
   box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.1);
   transition: all 0.2s;
-  text-transform: uppercase;
 }
 
 input:focus {

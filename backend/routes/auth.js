@@ -219,4 +219,78 @@ router.get("/me", authenticateToken, (req, res) => {
     allowedSubjects, // ← array of { id, name, pattern }
   });
 });
+// ─── Update password sendiri (semua role) ────────────────────────────────────
+router.put("/me/password", authenticateToken, (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+
+  if (!currentPassword || !newPassword) {
+    return res
+      .status(400)
+      .json({ error: "Password lama dan baru harus diisi" });
+  }
+
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: "Password baru minimal 6 karakter" });
+  }
+
+  const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
+
+  if (!user || !bcrypt.compareSync(currentPassword, user.password)) {
+    return res.status(401).json({ error: "Password lama tidak sesuai" });
+  }
+
+  const hashedPassword = bcrypt.hashSync(newPassword, 10);
+
+  try {
+    db.prepare("UPDATE users SET password = ? WHERE id = ?").run(
+      hashedPassword,
+      req.user.id,
+    );
+
+    res.json({ message: "Password berhasil diubah" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Gagal mengubah password" });
+  }
+});
+
+// ─── Reset password user oleh admin ──────────────────────────────────────────
+// PUT /api/auth/users/:id/password
+// PUT /api/auth/users/:id/password
+router.put(
+  "/users/:id/password",
+  authenticateToken,
+  requireAdmin,
+  async (req, res) => {
+    const { id } = req.params;
+    const { password } = req.body;
+
+    if (!password || password.length < 6) {
+      return res
+        .status(400)
+        .json({ error: "Password must be at least 6 characters" });
+    }
+
+    try {
+      // Cek user ada
+      const user = db.prepare("SELECT id FROM users WHERE id = ?").get(id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      // better-sqlite3 pakai .prepare().run()
+      db.prepare("UPDATE users SET password = ? WHERE id = ?").run(
+        hashedPassword,
+        id,
+      );
+
+      return res.json({ message: "Password updated successfully" });
+    } catch (error) {
+      console.error("Error updating password:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  },
+);
 module.exports = router;

@@ -10,10 +10,16 @@
             <span class="user-name">{{ authStore.user?.username }}</span>
           </div>
         </div>
-        <button @click="handleLogout" class="btn-logout">
-          <span>LOGOUT</span>
-          <span class="icon">→</span>
-        </button>
+        <div class="header-actions">
+          <button @click="showChangePassword = true" class="btn-settings">
+            <span>⚙️</span>
+            <span>PASSWORD</span>
+          </button>
+          <button @click="handleLogout" class="btn-logout">
+            <span>LOGOUT</span>
+            <span class="icon">→</span>
+          </button>
+        </div>
       </div>
     </header>
 
@@ -43,16 +49,65 @@
           <h3>YOUR ACCESS PERMISSIONS</h3>
         </div>
         <div class="permission-grid">
+          <!-- Allowed Emails -->
           <div v-if="authStore.user?.allowedEmails" class="permission-item">
             <div class="permission-label">📧 ALLOWED EMAILS</div>
-            <div class="permission-value">
-              {{ authStore.user.allowedEmails }}
+            <div class="permission-emails">
+              <div
+                v-for="(email, index) in emailList.slice(0, visibleEmailCount)"
+                :key="index"
+                class="email-pill"
+              >
+                <span class="email-icon">@</span>
+                <span class="email-text">{{ email }}</span>
+              </div>
+
+              <div v-if="emailList.length > 10" class="show-more-row">
+                <!-- Show more -->
+                <button
+                  v-if="visibleEmailCount < emailList.length"
+                  class="btn-show-more"
+                  @click="
+                    visibleEmailCount = Math.min(
+                      visibleEmailCount + 10,
+                      emailList.length,
+                    )
+                  "
+                >
+                  ▼ LIHAT
+                  {{ Math.min(emailList.length - visibleEmailCount, 10) }}
+                  LAGI
+                  <span class="show-more-meta">
+                    ({{ visibleEmailCount }}/{{ emailList.length }})
+                  </span>
+                </button>
+
+                <!-- Show less -->
+                <button
+                  v-if="visibleEmailCount > 10"
+                  class="btn-show-less"
+                  @click="visibleEmailCount = 10"
+                >
+                  ▲ SEMBUNYIKAN
+                </button>
+              </div>
             </div>
           </div>
+
+          <!-- Allowed Keywords -->
           <div v-if="authStore.user?.allowedKeywords" class="permission-item">
             <div class="permission-label">🔑 ALLOWED KEYWORDS</div>
-            <div class="permission-value">
-              {{ authStore.user.allowedKeywords }}
+            <div class="permission-keywords">
+              <span
+                v-for="(kw, index) in authStore.user.allowedKeywords
+                  .split(',')
+                  .map((k) => k.trim())
+                  .filter(Boolean)"
+                :key="index"
+                class="keyword-pill"
+              >
+                {{ kw }}
+              </span>
             </div>
           </div>
         </div>
@@ -169,6 +224,154 @@
 
     <!-- Message Detail Modal -->
     <teleport to="body">
+      <!-- Change Password Modal -->
+      <div
+        v-if="showChangePassword"
+        class="modal-overlay"
+        @click="closeChangePassword"
+      >
+        <div class="modal brutal pw-modal" @click.stop>
+          <div class="modal-header">
+            <div class="message-badge" style="background: #4ecdc4; color: #000">
+              🔐 CHANGE PASSWORD
+            </div>
+            <button @click="closeChangePassword" class="btn-close">✕</button>
+          </div>
+
+          <div class="modal-body">
+            <!-- Info user -->
+            <div class="pw-user-info">
+              <span class="pw-user-avatar">
+                {{ authStore.user?.username?.charAt(0).toUpperCase() }}
+              </span>
+              <div>
+                <div class="pw-user-name">{{ authStore.user?.username }}</div>
+                <div class="pw-user-role">Regular User</div>
+              </div>
+            </div>
+
+            <form @submit.prevent="submitChangePassword" class="pw-form">
+              <!-- Current Password -->
+              <div class="pw-field">
+                <label>CURRENT PASSWORD *</label>
+                <div class="pw-input-wrap">
+                  <input
+                    v-model="pwForm.currentPassword"
+                    :type="showCurrentPw ? 'text' : 'password'"
+                    placeholder="Masukkan password saat ini"
+                    required
+                  />
+                  <button
+                    type="button"
+                    class="pw-toggle"
+                    @click="showCurrentPw = !showCurrentPw"
+                  >
+                    {{ showCurrentPw ? "🙈" : "👁️" }}
+                  </button>
+                </div>
+              </div>
+
+              <!-- New Password -->
+              <div class="pw-field">
+                <label>NEW PASSWORD *</label>
+                <div class="pw-input-wrap">
+                  <input
+                    v-model="pwForm.newPassword"
+                    :type="showNewPw ? 'text' : 'password'"
+                    placeholder="Minimal 6 karakter"
+                    required
+                    minlength="6"
+                  />
+                  <button
+                    type="button"
+                    class="pw-toggle"
+                    @click="showNewPw = !showNewPw"
+                  >
+                    {{ showNewPw ? "🙈" : "👁️" }}
+                  </button>
+                </div>
+
+                <!-- Strength bar -->
+                <div v-if="pwForm.newPassword" class="pw-strength-wrap">
+                  <div class="pw-strength-bar">
+                    <div
+                      class="pw-strength-fill"
+                      :class="pwStrengthClass"
+                      :style="{ width: pwStrengthWidth }"
+                    ></div>
+                  </div>
+                  <span class="pw-strength-label" :class="pwStrengthClass">
+                    {{ pwStrengthLabel }}
+                  </span>
+                </div>
+              </div>
+
+              <!-- Confirm Password -->
+              <div class="pw-field">
+                <label>CONFIRM NEW PASSWORD *</label>
+                <div class="pw-input-wrap">
+                  <input
+                    v-model="pwForm.confirmPassword"
+                    :type="showConfirmPw ? 'text' : 'password'"
+                    placeholder="Ulangi password baru"
+                    required
+                  />
+                  <button
+                    type="button"
+                    class="pw-toggle"
+                    @click="showConfirmPw = !showConfirmPw"
+                  >
+                    {{ showConfirmPw ? "🙈" : "👁️" }}
+                  </button>
+                </div>
+                <div
+                  v-if="pwForm.confirmPassword"
+                  class="pw-match-hint"
+                  :class="
+                    pwForm.newPassword === pwForm.confirmPassword
+                      ? 'match-ok'
+                      : 'match-no'
+                  "
+                >
+                  {{
+                    pwForm.newPassword === pwForm.confirmPassword
+                      ? "✓ Password cocok"
+                      : "⚠ Password tidak cocok"
+                  }}
+                </div>
+              </div>
+
+              <!-- Feedback message -->
+              <div v-if="pwMessage" class="pw-message" :class="pwMessageType">
+                {{ pwMessage }}
+              </div>
+
+              <div class="pw-actions">
+                <button
+                  type="button"
+                  @click="closeChangePassword"
+                  class="btn-cancel"
+                >
+                  CANCEL
+                </button>
+                <button
+                  type="submit"
+                  class="btn-submit"
+                  :disabled="
+                    !pwForm.currentPassword ||
+                    !pwForm.newPassword ||
+                    pwForm.newPassword !== pwForm.confirmPassword ||
+                    pwChanging
+                  "
+                >
+                  <span v-if="pwChanging">UPDATING...</span>
+                  <span v-else>🔐 UPDATE PASSWORD</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
       <div v-if="selectedMessage" class="modal-overlay" @click="closeModal">
         <div class="modal brutal" @click.stop>
           <div class="modal-header">
@@ -205,7 +408,7 @@
                 <span class="meta-label">KEYWORDS:</span>
                 <div class="meta-keywords">
                   <span
-                    v-for="keyword in selectedMessage.keywords.split(',')"
+                    v-for="keyword in selectedMessage.keywords"
                     :key="keyword"
                     class="keyword-tag"
                   >
@@ -234,7 +437,7 @@ import axios from "axios";
 
 const router = useRouter();
 const authStore = useAuthStore();
-
+const showAllEmails = ref(false);
 const messages = ref([]);
 const selectedMessage = ref(null);
 const activeCategory = ref(null);
@@ -242,16 +445,99 @@ const searchQuery = ref("");
 const loading = ref(false);
 const autoRefresh = ref(true);
 const lastUpdate = ref("Never");
+const visibleEmailCount = ref(10);
 
+const emailList = computed(() =>
+  (authStore.user?.allowedEmails || "")
+    .split(",")
+    .map((e) => e.trim())
+    .filter(Boolean),
+);
 let refreshInterval = null;
 let searchTimeout = null;
+// ── Change Password ──────────────────────────────────────────────────────
+const showChangePassword = ref(false);
+const pwChanging = ref(false);
+const pwMessage = ref("");
+const pwMessageType = ref("");
+const showCurrentPw = ref(false);
+const showNewPw = ref(false);
+const showConfirmPw = ref(false);
 
+const pwForm = ref({
+  currentPassword: "",
+  newPassword: "",
+  confirmPassword: "",
+});
+
+const pwStrengthScore = computed(() => {
+  const pw = pwForm.value.newPassword;
+  if (!pw) return 0;
+  let score = 0;
+  if (pw.length >= 6) score++;
+  if (pw.length >= 10) score++;
+  if (/[A-Z]/.test(pw)) score++;
+  if (/[0-9]/.test(pw)) score++;
+  if (/[^A-Za-z0-9]/.test(pw)) score++;
+  return score;
+});
+
+const pwStrengthClass = computed(() => {
+  const s = pwStrengthScore.value;
+  if (s <= 1) return "pw-weak";
+  if (s <= 3) return "pw-medium";
+  return "pw-strong";
+});
+
+const pwStrengthWidth = computed(() => `${(pwStrengthScore.value / 5) * 100}%`);
+
+const pwStrengthLabel = computed(() => {
+  const s = pwStrengthScore.value;
+  if (s <= 1) return "WEAK";
+  if (s <= 3) return "MEDIUM";
+  return "STRONG";
+});
+
+const closeChangePassword = () => {
+  showChangePassword.value = false;
+  pwMessage.value = "";
+  pwForm.value = { currentPassword: "", newPassword: "", confirmPassword: "" };
+  showCurrentPw.value = false;
+  showNewPw.value = false;
+  showConfirmPw.value = false;
+};
+
+const submitChangePassword = async () => {
+  if (pwForm.value.newPassword !== pwForm.value.confirmPassword) {
+    pwMessage.value = "❌ Password baru tidak cocok!";
+    pwMessageType.value = "error";
+    return;
+  }
+  pwChanging.value = true;
+  pwMessage.value = "";
+  try {
+    await axios.put("/api/auth/me/password", {
+      currentPassword: pwForm.value.currentPassword,
+      newPassword: pwForm.value.newPassword,
+    });
+    pwMessage.value = "✅ Password berhasil diupdate!";
+    pwMessageType.value = "success";
+    // Auto tutup modal setelah 1.5 detik
+    setTimeout(() => closeChangePassword(), 1500);
+  } catch (error) {
+    pwMessage.value =
+      "❌ " + (error.response?.data?.error || "Gagal update password");
+    pwMessageType.value = "error";
+  } finally {
+    pwChanging.value = false;
+  }
+};
 // Categorize message
 const categorizeMessage = (message) => {
   const subject = (message.subject || "").toLowerCase();
   const keywords = (message.keywords || "").toLowerCase();
   const combined = subject + " " + keywords;
-  console.log("Categorizing message:", { subject, keywords, combined });
+
   // Check for password reset first (more specific)
   if (
     combined.includes("reset") ||
@@ -364,6 +650,7 @@ const fetchMessages = async () => {
   try {
     const params = searchQuery.value ? { search: searchQuery.value } : {};
     const response = await axios.get("/api/messages", { params });
+
     messages.value = response.data;
   } catch (error) {
     console.error("Error fetching messages:", error);
@@ -481,7 +768,330 @@ onUnmounted(() => {
 * {
   box-sizing: border-box;
 }
+/* ── Change Password Modal ──────────────────────────────────────────────── */
+.pw-modal {
+  max-width: 500px;
+}
+.show-more-row {
+  display: flex;
+  gap: 8px;
+}
 
+.btn-show-more {
+  flex: 1;
+  background: #f5f5f0;
+  border: 3px solid #000;
+  padding: 9px 14px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-family: inherit;
+  transition: all 0.1s;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btn-show-more:hover {
+  background: #ffeb3b;
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.08);
+}
+
+.btn-show-less {
+  background: #f5f5f0;
+  border: 3px solid #000;
+  padding: 9px 14px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-family: inherit;
+  transition: all 0.1s;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.08);
+}
+
+.btn-show-less:hover {
+  background: #000;
+  color: #fff;
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.08);
+}
+
+.show-more-meta {
+  opacity: 0.5;
+  font-size: 10px;
+}
+.pw-user-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  background: #f5f5f0;
+  border: 4px solid #000;
+  margin-bottom: 28px;
+}
+
+.pw-user-avatar {
+  width: 52px;
+  height: 52px;
+  background: #4ecdc4;
+  border: 4px solid #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 900;
+  flex-shrink: 0;
+}
+
+.pw-user-name {
+  font-size: 18px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.pw-user-role {
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0.5;
+  margin-top: 4px;
+  text-transform: uppercase;
+}
+
+.pw-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.pw-field {
+  margin-bottom: 22px;
+}
+
+.pw-field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+  opacity: 0.7;
+}
+
+.pw-input-wrap {
+  position: relative;
+  display: flex;
+}
+
+.pw-input-wrap input {
+  flex: 1;
+  padding: 14px 50px 14px 16px;
+  border: 4px solid #000;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: inherit;
+  background: #fff;
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.1);
+  width: 100%;
+}
+
+.pw-input-wrap input:focus {
+  outline: none;
+  border-color: #4ecdc4;
+  box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.15);
+}
+
+.pw-toggle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  height: 100%;
+  width: 48px;
+  background: #f5f5f0;
+  border: none;
+  border-left: 3px solid #000;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.1s;
+}
+
+.pw-toggle:hover {
+  background: #ffeb3b;
+}
+
+/* Strength */
+.pw-strength-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.pw-strength-bar {
+  flex: 1;
+  height: 8px;
+  background: #e8e8e4;
+  border: 2px solid #000;
+}
+.btn-show-more {
+  width: 100%;
+  background: #f5f5f0;
+  border: 3px solid #000;
+  padding: 8px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-family: inherit;
+  transition: all 0.1s;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.08);
+}
+
+.btn-show-more:hover {
+  background: #ffeb3b;
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.08);
+}
+.pw-strength-fill {
+  height: 100%;
+  transition:
+    width 0.3s,
+    background 0.3s;
+}
+
+.pw-strength-label {
+  font-size: 11px;
+  font-weight: 900;
+  min-width: 52px;
+  text-align: right;
+}
+
+.pw-weak {
+  background: #ff6b6b;
+  color: #cc2200;
+}
+.pw-medium {
+  background: #ffeb3b;
+  color: #b8940a;
+}
+.pw-strong {
+  background: #4ecdc4;
+  color: #0a7a74;
+}
+
+/* Match hint */
+.pw-match-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.match-ok {
+  color: #0a7a74;
+}
+.match-no {
+  color: #cc2200;
+}
+
+/* Feedback */
+.pw-message {
+  padding: 14px 18px;
+  font-size: 13px;
+  font-weight: 900;
+  text-transform: uppercase;
+  border: 4px solid #000;
+  margin-bottom: 20px;
+  letter-spacing: 0.5px;
+}
+.pw-message.success {
+  background: #d4f4e2;
+  color: #0a7a74;
+}
+.pw-message.error {
+  background: #ffe0e0;
+  color: #cc2200;
+}
+
+/* Actions */
+.pw-actions {
+  display: flex;
+  gap: 12px;
+  padding-top: 24px;
+  border-top: 4px solid #000;
+}
+
+.btn-cancel {
+  flex: 1;
+  background: #fff;
+  color: #000;
+  border: 4px solid #000;
+  padding: 14px;
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+  text-transform: uppercase;
+  font-family: inherit;
+  box-shadow: 4px 4px 0 #000;
+  transition: all 0.1s;
+}
+
+.btn-cancel:hover {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 #000;
+}
+
+.btn-submit {
+  flex: 2;
+  background: #4ecdc4;
+  color: #000;
+  border: 4px solid #000;
+  padding: 14px;
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+  text-transform: uppercase;
+  font-family: inherit;
+  box-shadow: 4px 4px 0 #000;
+  transition: all 0.1s;
+}
+
+.btn-submit:hover:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 #000;
+}
+
+.btn-submit:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: 4px 4px 0 #000;
+}
+
+@media (max-width: 768px) {
+  .header-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+  .btn-settings,
+  .btn-logout {
+    width: 100%;
+    justify-content: center;
+  }
+  .pw-actions {
+    flex-direction: column;
+  }
+}
 .user-dashboard {
   min-height: 100vh;
   background: #f5f5f0;
@@ -541,7 +1151,103 @@ onUnmounted(() => {
   font-size: 14px;
   font-weight: 900;
 }
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+/* Permission pills */
+.permission-emails {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
 
+.email-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff;
+  border: 3px solid #000;
+  padding: 9px 14px;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.08);
+  transition:
+    transform 0.1s,
+    box-shadow 0.1s;
+}
+
+.email-pill:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.08);
+}
+
+.email-icon {
+  font-size: 13px;
+  font-weight: 900;
+  color: #fff;
+  background: #000;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-style: normal;
+}
+
+.email-text {
+  font-size: 13px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: monospace;
+}
+
+.permission-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.keyword-pill {
+  background: #ffeb3b;
+  border: 3px solid #000;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.1);
+}
+.btn-settings {
+  background: #4ecdc4;
+  color: #000;
+  border: 4px solid #000;
+  padding: 12px 20px;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.1s;
+  box-shadow: 4px 4px 0 #000;
+  font-family: inherit;
+}
+
+.btn-settings:hover {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 #000;
+}
+
+.btn-settings:active {
+  transform: translate(4px, 4px);
+  box-shadow: 0 0 0 #000;
+}
 .btn-logout {
   background: #fff;
   color: #000;
@@ -818,7 +1524,6 @@ onUnmounted(() => {
   font-size: 15px;
   font-weight: 700;
   font-family: inherit;
-  text-transform: uppercase;
 }
 
 .search-box input:focus {

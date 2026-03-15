@@ -37,6 +37,159 @@
 
     <div class="dashboard-content">
       <!-- ═══════════════════════════════════════════════
+     SETTINGS TAB
+════════════════════════════════════════════════ -->
+      <div v-if="activeTab === 'settings'" class="tab-panel">
+        <div class="panel-header">
+          <h2 class="panel-title">
+            <span class="icon">⚙️</span>
+            <span>ADMIN SETTINGS</span>
+          </h2>
+        </div>
+
+        <div class="settings-grid">
+          <!-- Card: Change Own Password -->
+          <div class="settings-card">
+            <div class="settings-card-header">
+              <span class="settings-icon">🔐</span>
+              <div>
+                <h3 class="settings-title">CHANGE ADMIN PASSWORD</h3>
+                <p class="settings-desc">
+                  Update password untuk akun admin
+                  <strong>{{ authStore.user?.username }}</strong>
+                </p>
+              </div>
+            </div>
+
+            <form
+              @submit.prevent="submitAdminPasswordChange"
+              class="settings-form"
+            >
+              <div class="form-field">
+                <label>CURRENT PASSWORD *</label>
+                <input
+                  v-model="adminPwForm.currentPassword"
+                  type="password"
+                  placeholder="Masukkan password saat ini"
+                  required
+                />
+              </div>
+              <div class="form-field">
+                <label>NEW PASSWORD *</label>
+                <input
+                  v-model="adminPwForm.newPassword"
+                  type="password"
+                  placeholder="Minimal 6 karakter"
+                  required
+                  minlength="6"
+                />
+              </div>
+              <div class="form-field">
+                <label>CONFIRM NEW PASSWORD *</label>
+                <input
+                  v-model="adminPwForm.confirmPassword"
+                  type="password"
+                  placeholder="Ulangi password baru"
+                  required
+                />
+                <small
+                  v-if="
+                    adminPwForm.confirmPassword &&
+                    adminPwForm.newPassword !== adminPwForm.confirmPassword
+                  "
+                  style="color: #ff6b6b; font-weight: 900"
+                >
+                  ⚠ Password tidak cocok
+                </small>
+                <small
+                  v-else-if="
+                    adminPwForm.confirmPassword &&
+                    adminPwForm.newPassword === adminPwForm.confirmPassword
+                  "
+                  style="color: #1a9e5e; font-weight: 900"
+                >
+                  ✓ Password cocok
+                </small>
+              </div>
+
+              <!-- Strength indicator -->
+              <div class="pw-strength-wrap" v-if="adminPwForm.newPassword">
+                <div class="pw-strength-label">STRENGTH:</div>
+                <div class="pw-strength-bar">
+                  <div
+                    class="pw-strength-fill"
+                    :class="passwordStrengthClass"
+                    :style="{ width: passwordStrengthWidth }"
+                  ></div>
+                </div>
+                <span class="pw-strength-text" :class="passwordStrengthClass">
+                  {{ passwordStrengthLabel }}
+                </span>
+              </div>
+
+              <div class="settings-actions">
+                <button
+                  type="button"
+                  @click="resetAdminPwForm"
+                  class="btn-secondary"
+                >
+                  RESET FORM
+                </button>
+                <button
+                  type="submit"
+                  class="btn-primary"
+                  :disabled="
+                    adminPwForm.newPassword !== adminPwForm.confirmPassword ||
+                    !adminPwForm.newPassword ||
+                    !adminPwForm.currentPassword ||
+                    adminPwChanging
+                  "
+                >
+                  <span v-if="adminPwChanging">UPDATING...</span>
+                  <span v-else>🔐 UPDATE PASSWORD</span>
+                </button>
+              </div>
+            </form>
+
+            <!-- Success / Error feedback -->
+            <div
+              v-if="adminPwMessage"
+              class="pw-message"
+              :class="adminPwMessageType"
+            >
+              {{ adminPwMessage }}
+            </div>
+          </div>
+
+          <!-- Card: Info Akun -->
+          <div class="settings-card info-card">
+            <div class="settings-card-header">
+              <span class="settings-icon">👤</span>
+              <div>
+                <h3 class="settings-title">INFO AKUN</h3>
+                <p class="settings-desc">Detail akun yang sedang login</p>
+              </div>
+            </div>
+            <div class="account-info-list">
+              <div class="account-info-row">
+                <span class="ai-label">USERNAME</span>
+                <span class="ai-value">{{ authStore.user?.username }}</span>
+              </div>
+              <div class="account-info-row">
+                <span class="ai-label">ROLE</span>
+                <span class="ai-value">
+                  <span class="role-badge">ROOT ADMIN</span>
+                </span>
+              </div>
+              <div class="account-info-row">
+                <span class="ai-label">SESSION</span>
+                <span class="ai-value ai-active">● ACTIVE</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- ═══════════════════════════════════════════════
            MESSAGES TAB
       ════════════════════════════════════════════════ -->
       <div v-if="activeTab === 'messages'" class="tab-panel">
@@ -73,10 +226,18 @@
             <input
               v-model="searchQuery"
               type="text"
-              placeholder="SEARCH MESSAGES..."
+              placeholder="SEARCH MESSAGES WITH EMAIL..."
               @input="debouncedSearch"
             />
           </div>
+          <button
+            v-if="activeCategory || searchQuery"
+            @click="clearFilters"
+            class="btn-clear"
+          >
+            <span class="icon">✕</span>
+            <span>CLEAR</span>
+          </button>
           <button @click="fetchMessages" class="btn-refresh">
             <span class="icon">↻</span>
             <span>REFRESH</span>
@@ -205,6 +366,10 @@
             <div class="user-actions">
               <button @click="editUserPermissions(user)" class="btn-edit">
                 ✏️ EDIT
+              </button>
+              <!-- Tambahkan setelah btn-edit -->
+              <button @click="openChangePassword(user)" class="btn-password">
+                🔒 PASSWORD
               </button>
               <button @click="openSubjectAccess(user)" class="btn-subject">
                 📋 SUBJECTS
@@ -346,16 +511,14 @@
               <label>PASSWORD</label>
               <input v-model="newUser.password" type="password" required />
             </div>
+            <!-- Modal Create User -->
             <div class="form-field">
               <label>ALLOWED EMAILS *</label>
-              <input
-                v-model="newUser.allowedEmails"
-                type="text"
-                placeholder="email1@example.com, email2@example.com"
-                required
-              />
-              <small>Separate multiple emails with commas</small>
+              <EmailListInput v-model="newUser.allowedEmails" />
             </div>
+
+            <!-- Modal Edit User -->
+
             <div class="form-field">
               <label>ALLOWED KEYWORDS</label>
               <input
@@ -418,12 +581,7 @@
           <form @submit.prevent="updatePermissions" class="modal-form">
             <div class="form-field">
               <label>ALLOWED EMAILS *</label>
-              <input
-                v-model="editingUser.allowed_emails"
-                type="text"
-                required
-              />
-              <small>Separate multiple emails with commas</small>
+              <EmailListInput v-model="editingUser.allowed_emails_arr" />
             </div>
             <div class="form-field">
               <label>ALLOWED KEYWORDS</label>
@@ -628,19 +786,189 @@
           </div>
         </div>
       </div>
+      <!-- Change Password Modal -->
+      <div
+        v-if="changingPasswordUser"
+        class="modal-overlay"
+        @click="changingPasswordUser = null"
+      >
+        <div class="modal brutal" @click.stop>
+          <div class="modal-header">
+            <h2>CHANGE PASSWORD: {{ changingPasswordUser.username }}</h2>
+            <button @click="changingPasswordUser = null" class="btn-close">
+              ✕
+            </button>
+          </div>
+          <form @submit.prevent="submitChangePassword" class="modal-form">
+            <div class="form-field">
+              <label>NEW PASSWORD *</label>
+              <input
+                v-model="newPassword"
+                type="password"
+                placeholder="Enter new password"
+                required
+                minlength="6"
+              />
+              <small>Minimum 6 characters</small>
+            </div>
+            <div class="form-field">
+              <label>CONFIRM PASSWORD *</label>
+              <input
+                v-model="confirmPassword"
+                type="password"
+                placeholder="Re-enter new password"
+                required
+              />
+              <small
+                v-if="confirmPassword && newPassword !== confirmPassword"
+                style="color: #ff6b6b; font-weight: 900"
+              >
+                ⚠ Passwords do not match
+              </small>
+            </div>
+            <div class="form-actions">
+              <button
+                type="button"
+                @click="changingPasswordUser = null"
+                class="btn-secondary"
+              >
+                CANCEL
+              </button>
+              <button
+                type="submit"
+                class="btn-primary"
+                :disabled="newPassword !== confirmPassword || !newPassword"
+              >
+                UPDATE PASSWORD
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
     </teleport>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import { useAuthStore } from "../stores/auth";
 import axios from "axios";
-
+import EmailListInput from "../components/EmailListInput.vue";
+let refreshInterval = null;
+let searchTimeout = null;
+const autoRefresh = ref(true);
+const activeCategory = ref(null);
 const router = useRouter();
 const authStore = useAuthStore();
+// ── Change Password state ─────────────────────────────────────────────────
+const changingPasswordUser = ref(null);
+const newPassword = ref("");
+const confirmPassword = ref("");
 
+const openChangePassword = (user) => {
+  changingPasswordUser.value = user;
+  newPassword.value = "";
+  confirmPassword.value = "";
+};
+
+const submitChangePassword = async () => {
+  if (newPassword.value !== confirmPassword.value) {
+    alert("Passwords do not match!");
+    return;
+  }
+  try {
+    await axios.put(
+      `/api/auth/users/${changingPasswordUser.value.id}/password`,
+      {
+        password: newPassword.value,
+      },
+    );
+    alert(
+      `Password for "${changingPasswordUser.value.username}" updated successfully!`,
+    );
+    changingPasswordUser.value = null;
+  } catch (error) {
+    alert(error.response?.data?.error || "Failed to update password");
+  }
+};
+const clearFilters = () => {
+  activeCategory.value = null;
+  searchQuery.value = "";
+};
+// ── Admin self-change password ───────────────────────────────────────────
+const adminPwForm = ref({
+  currentPassword: "",
+  newPassword: "",
+  confirmPassword: "",
+});
+const adminPwChanging = ref(false);
+const adminPwMessage = ref("");
+const adminPwMessageType = ref(""); // "success" | "error"
+
+const passwordStrengthScore = computed(() => {
+  const pw = adminPwForm.value.newPassword;
+  if (!pw) return 0;
+  let score = 0;
+  if (pw.length >= 6) score++;
+  if (pw.length >= 10) score++;
+  if (/[A-Z]/.test(pw)) score++;
+  if (/[0-9]/.test(pw)) score++;
+  if (/[^A-Za-z0-9]/.test(pw)) score++;
+  return score;
+});
+
+const passwordStrengthClass = computed(() => {
+  const s = passwordStrengthScore.value;
+  if (s <= 1) return "pw-weak";
+  if (s <= 3) return "pw-medium";
+  return "pw-strong";
+});
+
+const passwordStrengthWidth = computed(() => {
+  return `${(passwordStrengthScore.value / 5) * 100}%`;
+});
+
+const passwordStrengthLabel = computed(() => {
+  const s = passwordStrengthScore.value;
+  if (s <= 1) return "WEAK";
+  if (s <= 3) return "MEDIUM";
+  return "STRONG";
+});
+
+const resetAdminPwForm = () => {
+  adminPwForm.value = {
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  };
+  adminPwMessage.value = "";
+};
+
+const submitAdminPasswordChange = async () => {
+  if (adminPwForm.value.newPassword !== adminPwForm.value.confirmPassword) {
+    adminPwMessage.value = "❌ Password baru tidak cocok!";
+    adminPwMessageType.value = "error";
+    return;
+  }
+  adminPwChanging.value = true;
+  adminPwMessage.value = "";
+  try {
+    await axios.put("/api/auth/me/password", {
+      currentPassword: adminPwForm.value.currentPassword,
+      newPassword: adminPwForm.value.newPassword,
+    });
+    adminPwMessage.value = "✅ Password berhasil diupdate!";
+    adminPwMessageType.value = "success";
+    resetAdminPwForm();
+  } catch (error) {
+    adminPwMessage.value =
+      "❌ " + (error.response?.data?.error || "Gagal update password");
+    adminPwMessageType.value = "error";
+  } finally {
+    adminPwChanging.value = false;
+  }
+};
 // ── Tabs ────────────────────────────────────────────────────────────────────
 const activeTab = ref("messages");
 
@@ -658,6 +986,7 @@ const tabs = computed(() => [
     label: "SUBJECTS",
     count: subjects.value.length,
   },
+  { id: "settings", icon: "⚙️", label: "SETTINGS" },
 ]);
 
 // ── Messages state ───────────────────────────────────────────────────────────
@@ -774,7 +1103,6 @@ const filteredMessages = computed(() => {
   return filtered;
 });
 
-let searchTimeout = null;
 const debouncedSearch = () => {
   clearTimeout(searchTimeout);
   searchTimeout = setTimeout(() => {}, 300);
@@ -848,7 +1176,7 @@ const createUser = async () => {
       username: newUser.value.username,
       password: newUser.value.password,
       allowedKeywords: newUser.value.allowedKeywords,
-      allowedEmails: newUser.value.allowedEmails,
+      allowedEmails: newUser.value.allowedEmails.join(","),
     });
 
     const userId = res.data.userId;
@@ -868,15 +1196,25 @@ const createUser = async () => {
   }
 };
 
-const editUserPermissions = (user) => {
-  editingUser.value = { ...user };
-};
+// Create user
 
+// Edit user — parse string → array saat buka modal
+const editUserPermissions = (user) => {
+  editingUser.value = {
+    ...user,
+    allowed_emails_arr: user.allowed_emails
+      ? user.allowed_emails
+          .split(",")
+          .map((e) => e.trim())
+          .filter(Boolean)
+      : [],
+  };
+};
 const updatePermissions = async () => {
   try {
     await axios.put(`/api/auth/users/${editingUser.value.id}/permissions`, {
       allowedKeywords: editingUser.value.allowed_keywords,
-      allowedEmails: editingUser.value.allowed_emails,
+      allowedEmails: editingUser.value.allowed_emails_arr.join(","),
     });
     alert("Permissions updated successfully!");
     editingUser.value = null;
@@ -1043,11 +1381,28 @@ const formatDate = (date) => {
   });
 };
 
-onMounted(() => {
-  fetchMessages();
-  fetchUsers();
-  fetchSubjects();
-});
+let running = true
+
+async function startPolling() {
+  while (running) {
+    if (autoRefresh.value) {
+      await fetchMessages()
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 60000))
+  }
+}
+
+onMounted(async () => {
+  await fetchUsers()
+  await fetchSubjects()
+
+  startPolling()
+})
+
+onUnmounted(() => {
+  running = false
+})
 </script>
 
 <style scoped>
@@ -1668,6 +2023,24 @@ onMounted(() => {
 .user-actions {
   display: flex;
   gap: 10px;
+}
+.btn-password {
+  flex: 1;
+  border: 4px solid #000;
+  padding: 12px 8px;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: all 0.1s;
+  font-family: inherit;
+  background: #ffd166;
+  color: #000;
+  box-shadow: 4px 4px 0 #000;
+}
+.btn-password:hover {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 #000;
 }
 .btn-edit,
 .btn-delete,
