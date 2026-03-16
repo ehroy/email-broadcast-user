@@ -9,7 +9,7 @@ require("dotenv").config({ path: "./backend/.env" });
 // ════════════════════════════════════════════════════════════════
 const emailCache = new Map();
 const CACHE_TTL_MS = 15 * 1000;
-
+let _pushCallback = null;
 function getCached(key) {
   const entry = emailCache.get(key);
   if (!entry) return null;
@@ -41,7 +41,9 @@ class EmailService {
     this.boxOpened = false;
     this._connectPromise = null; // mencegah race condition double-connect
   }
-
+  setPushCallback(fn) {
+    _pushCallback = fn; // ← set dari luar
+  }
   // ════════════════════════════════════════════════════════════════
   // CONNECT — singleton promise, tidak buka koneksi ganda
   // ════════════════════════════════════════════════════════════════
