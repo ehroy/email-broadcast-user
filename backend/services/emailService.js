@@ -75,11 +75,15 @@ class EmailService {
         // ✅ TARUH DI SINI — setelah ready, langsung pasang listener
         this.imap.on("mail", (numNewMsgs) => {
           console.log(
-            `[IMAP] ${numNewMsgs} email baru masuk → invalidate cache`,
+            `[IMAP] ${numNewMsgs} email baru masuk → schedule invalidate`,
           );
-          invalidateCache(); // bust semua cache, next request akan fetch ulang ke IMAP
-        });
 
+          // Delay 2 detik beri waktu email settle di server
+          setTimeout(() => {
+            invalidateCache();
+            if (_pushCallback) _pushCallback();
+          }, 2000);
+        });
         // Opsional: kalau ada email yang dihapus/expired di server
         this.imap.on("expunge", () => {
           console.log("[IMAP] Email dihapus di server → invalidate cache");
@@ -216,7 +220,7 @@ class EmailService {
         if (!results || results.length === 0) return resolve([]);
 
         // Ambil max 20 email terbaru
-        const latest = results.slice(-20);
+        const latest = results.slice(-10);
 
         const fetch = this.imap.fetch(latest, {
           bodies: "",
@@ -411,14 +415,20 @@ class EmailService {
     }
   }
   // Jalankan sekali saat server start
-  startBackgroundRefresh(intervalSeconds = 30) {
+  startBackgroundRefresh(intervalSeconds = 10) {
+    let isRunning = false; // ← tambah flag
+
     setInterval(async () => {
+      if (isRunning) {
+        console.log("[BG Refresh] Skipped — masih proses sebelumnya");
+        return;
+      }
+
+      isRunning = true; // ← lock
+
       try {
         console.log("[BG Refresh] Refreshing email cache...");
 
-        // Invalidate dulu biar fetchRecentEmails fetch ulang ke IMAP
-
-        // Fetch ulang untuk setiap user aktif
         const users = db.prepare("SELECT id, role FROM users").all();
 
         for (const user of users) {
@@ -440,7 +450,7 @@ class EmailService {
           }
 
           await this.fetchRecentEmails({
-            minutes: 10,
+            minutes: 10, // ← pastikan sama dengan route
             userId: user.id,
             userRole: user.role,
             allowedEmails,
@@ -450,6 +460,8 @@ class EmailService {
         console.log("[BG Refresh] Done");
       } catch (err) {
         console.error("[BG Refresh] Error:", err);
+      } finally {
+        isRunning = false; // ← unlock
       }
     }, intervalSeconds * 1000);
   }
