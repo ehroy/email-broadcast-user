@@ -4,19 +4,29 @@ const db = require("../database");
 require("dotenv").config({ path: "./backend/.env" });
 
 // ════════════════════════════════════════════════════════════════
-//  IN-MEMORY CACHE
-//  TTL 45 detik — cukup untuk realtime, tidak stale terlalu lama
+//  VARIABLES LUAR CLASS
 // ════════════════════════════════════════════════════════════════
-const emailCache = new Map();
-const CACHE_TTL_MS = 15 * 1000;
 let _pushCallback = null;
+
+const emailCache = new Map();
+const CACHE_TTL_MS = 45 * 1000;
+
+// Dedup: kalau ada fetch dengan key sama sedang berjalan,
+// request berikutnya tunggu promise yang sama — tidak buka IMAP baru
+const pendingFetches = new Map();
+
 function getCached(key) {
   const entry = emailCache.get(key);
-  if (!entry) return null;
-  if (Date.now() - entry.ts > CACHE_TTL_MS) {
-    emailCache.delete(key);
+  if (!entry) {
+    console.log(`[Cache MISS] key=${key}`);
     return null;
   }
+  if (Date.now() - entry.ts > CACHE_TTL_MS) {
+    emailCache.delete(key);
+    console.log(`[Cache EXPIRED] key=${key}`);
+    return null;
+  }
+  console.log(`[Cache HIT] key=${key} → ${entry.data.length} emails`);
   return entry.data;
 }
 
@@ -39,22 +49,22 @@ class EmailService {
     this.imap = null;
     this.isConnected = false;
     this.boxOpened = false;
-    this._connectPromise = null; // mencegah race condition double-connect
+    this._connectPromise = null;
   }
-  setPushCallback(fn) {
-    _pushCallback = fn; // ← set dari luar
-  }
+
   // ════════════════════════════════════════════════════════════════
-  // CONNECT — singleton promise, tidak buka koneksi ganda
+  // SET PUSH CALLBACK
+  // ════════════════════════════════════════════════════════════════
+  setPushCallback(fn) {
+    _pushCallback = fn;
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // CONNECT
   // ════════════════════════════════════════════════════════════════
   connect() {
-    if (this.isConnected && this.imap) {
-      return Promise.resolve();
-    }
-
-    if (this._connectPromise) {
-      return this._connectPromise;
-    }
+    if (this.isConnected && this.imap) return Promise.resolve();
+    if (this._connectPromise) return this._connectPromise;
 
     this._connectPromise = new Promise((resolve, reject) => {
       this.imap = new Imap({
@@ -65,8 +75,8 @@ class EmailService {
         tls: process.env.IMAP_TLS === "true",
         tlsOptions: { rejectUnauthorized: false },
         keepalive: true,
-        connTimeout: 10000, // ← tambah ini, timeout connect 10 detik
-        authTimeout: 5000, // ← timeout auth 5 detik
+        connTimeout: 10000,
+        authTimeout: 5000,
       });
 
       this.imap.once("ready", () => {
@@ -74,22 +84,22 @@ class EmailService {
         this._connectPromise = null;
         console.log("✓ IMAP Connected");
 
-        // ✅ TARUH DI SINI — setelah ready, langsung pasang listener
+        // ── Realtime: email baru masuk ────────────────────────
         this.imap.on("mail", (numNewMsgs) => {
-          console.log(
-            `[IMAP] ${numNewMsgs} email baru masuk → schedule invalidate`,
-          );
-
-          // Delay 2 detik beri waktu email settle di server
+          console.log(`[IMAP] ${numNewMsgs} email baru → schedule invalidate`);
           setTimeout(() => {
             invalidateCache();
             if (_pushCallback) _pushCallback();
           }, 2000);
         });
-        // Opsional: kalau ada email yang dihapus/expired di server
+
+        // ── Realtime: email dihapus di server ─────────────────
         this.imap.on("expunge", () => {
-          console.log("[IMAP] Email dihapus di server → invalidate cache");
-          invalidateCache();
+          console.log("[IMAP] Email dihapus → invalidate cache");
+          setTimeout(() => {
+            invalidateCache();
+            if (_pushCallback) _pushCallback();
+          }, 2000);
         });
 
         resolve();
@@ -132,14 +142,12 @@ class EmailService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  // ENSURE READY — connect + openBox dalam satu helper
+  // ENSURE READY
   // ════════════════════════════════════════════════════════════════
-  // Di emailService, perbaiki ensureReady()
   async ensureReady() {
-    // Cek apakah koneksi masih benar-benar hidup
     if (!this.isConnected || !this.imap || this.imap.state === "disconnected") {
       this.isConnected = false;
-      this.boxOpened = false; // ← reset juga boxOpened
+      this.boxOpened = false;
       await this.connect();
     }
     await this.openBoxIfNeeded();
@@ -175,17 +183,17 @@ class EmailService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  // FETCH RECENT EMAILS — core method
+  // FETCH RECENT EMAILS
   //
   // Perbaikan:
-  //  1. Promise.all — tunggu semua simpleParser selesai sebelum resolve
-  //  2. Cache per userId+role+allowedEmails key
-  //  3. Trim body HTML tidak dikirim (pakai flag includBody)
+  //  1. Promise.all — tunggu semua simpleParser selesai
+  //  2. Cache per key unik
+  //  3. Pending dedup — request bersamaan tunggu 1 promise saja
   // ════════════════════════════════════════════════════════════════
   async fetchRecentEmails({
     to = [],
     subject = [],
-    minutes = 15,
+    minutes = 30,
     userId = null,
     userRole = "user",
     allowedEmails = [],
@@ -193,12 +201,16 @@ class EmailService {
   } = {}) {
     await this.ensureReady();
 
-    // Cache key unik per kombinasi parameter
     const cacheKey = `fetch_${userId}_${userRole}_${minutes}_${allowedEmails.join("|")}`;
+
+    // ── Cache hit ─────────────────────────────────────────────
     const cached = getCached(cacheKey);
-    if (cached) {
-      console.log(`[Cache HIT] ${cacheKey} → ${cached.length} emails`);
-      return cached;
+    if (cached) return cached;
+
+    // ── Pending dedup: request bersamaan tunggu promise sama ──
+    if (pendingFetches.has(cacheKey)) {
+      console.log(`[Pending HIT] ${cacheKey} — menunggu fetch sebelumnya`);
+      return pendingFetches.get(cacheKey);
     }
 
     const allowedPatterns =
@@ -208,12 +220,13 @@ class EmailService {
 
     if (allowedPatterns.length === 0) {
       console.warn(
-        `fetchRecentEmails: no allowed patterns for userId=${userId}`,
+        `fetchRecentEmails: no allowed patterns untuk userId=${userId}`,
       );
       return [];
     }
 
-    return new Promise((resolve, reject) => {
+    // ── Buat fetch promise dan simpan ke pending ──────────────
+    const fetchPromise = new Promise((resolve, reject) => {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
@@ -221,8 +234,7 @@ class EmailService {
         if (err) return reject(err);
         if (!results || results.length === 0) return resolve([]);
 
-        // Ambil max 20 email terbaru
-        const latest = results.slice(-10);
+        const latest = results.slice(-20);
 
         const fetch = this.imap.fetch(latest, {
           bodies: "",
@@ -234,30 +246,28 @@ class EmailService {
         const maxAge = minutes * 60 * 1000;
 
         fetch.on("message", (msg, seqno) => {
-          // Setiap message dibungkus Promise → dikumpulkan di array
           const p = new Promise((resMsg) => {
             msg.on("body", (stream) => {
               simpleParser(stream)
                 .then((parsed) => {
                   if (!parsed) return resMsg(null);
 
-                  // ── Filter waktu ──────────────────────────────
+                  // ── Filter waktu ────────────────────────────
                   const emailTime = parsed.date
                     ? new Date(parsed.date).getTime()
                     : now;
-
                   if (now - emailTime > maxAge) return resMsg(null);
 
                   const subjectLower = (parsed.subject || "").toLowerCase();
                   const toEmailLower = (parsed.to?.text || "").toLowerCase();
 
-                  // ── Filter subject/pattern ────────────────────
+                  // ── Filter subject/pattern ──────────────────
                   const subjectOk = allowedPatterns.some((p) =>
                     subjectLower.includes(p),
                   );
                   if (!subjectOk) return resMsg(null);
 
-                  // ── Filter TO untuk non-admin ─────────────────
+                  // ── Filter TO untuk non-admin ───────────────
                   if (userRole !== "admin" && allowedEmails.length > 0) {
                     const toOk = allowedEmails.some((ae) =>
                       toEmailLower.includes(ae),
@@ -277,7 +287,6 @@ class EmailService {
                     subject: parsed.subject || "",
                     from_email: parsed.from?.text || "",
                     to_email: parsed.to?.text || "",
-                    // Body hanya disertakan kalau dibutuhkan
                     body: includeBody ? parsed.html || parsed.text || "" : "",
                     received_date: parsed.date
                       ? parsed.date.toISOString()
@@ -285,10 +294,9 @@ class EmailService {
                     keywords: keywords.join(","),
                   });
                 })
-                .catch(() => resMsg(null)); // error parsing → skip
+                .catch(() => resMsg(null));
             });
 
-            // Kalau tidak ada body event (edge case)
             msg.once("error", () => resMsg(null));
           });
 
@@ -297,31 +305,33 @@ class EmailService {
 
         fetch.once("error", reject);
 
-        // ── Tunggu SEMUA message selesai di-parse ─────────────────
         fetch.once("end", async () => {
           try {
             const settled = await Promise.all(parsePromises);
-            const emails = settled.filter(Boolean); // buang null
+            const emails = settled.filter(Boolean);
 
             console.log(
               `[IMAP] Fetched ${emails.length} emails (userId=${userId}, role=${userRole})`,
             );
 
-            // Simpan ke cache
             setCached(cacheKey, emails);
-
             resolve(emails);
           } catch (e) {
             reject(e);
           }
         });
       });
+    }).finally(() => {
+      // Hapus dari pending setelah selesai (sukses maupun error)
+      pendingFetches.delete(cacheKey);
     });
+
+    pendingFetches.set(cacheKey, fetchPromise);
+    return fetchPromise;
   }
 
   // ════════════════════════════════════════════════════════════════
   // USER FETCH RECENT EMAILS
-  // Delegate ke fetchRecentEmails — tidak perlu connect ulang
   // ════════════════════════════════════════════════════════════════
   async userFetchRecentEmails(options = {}) {
     return this.fetchRecentEmails(options);
@@ -331,39 +341,33 @@ class EmailService {
   // SEARCH FETCH RECENT EMAILS
   //
   // Perbaikan:
-  //  - Tidak lagi memanggil getKeywordPatternsForUser dua kali
-  //  - Tidak scan body (mahal) → gunakan keywords + subject + email
-  //  - Cache terpisah per search term
+  //  - Tidak double-fetch, tidak scan body
+  //  - Filter dari keywords + subject + email saja
   // ════════════════════════════════════════════════════════════════
   async searchFetchRecentEmails({
     search = null,
-    minutes = 15,
+    minutes = 30,
     userId = null,
     userRole = "user",
     allowedEmails = [],
   } = {}) {
     const searchLower = search ? search.toLowerCase().trim() : null;
 
-    // Cache key sertakan search term
     const cacheKey = `search_${userId}_${userRole}_${minutes}_${allowedEmails.join("|")}_${searchLower || "all"}`;
     const cached = getCached(cacheKey);
-    if (cached) {
-      console.log(`[Cache HIT] ${cacheKey} → ${cached.length} emails`);
-      return cached;
-    }
+    if (cached) return cached;
 
-    // Ambil base emails (sudah di-cache di fetchRecentEmails)
+    // Ambil base emails — sudah di-cache dan di-dedup di fetchRecentEmails
     const emails = await this.fetchRecentEmails({
       minutes,
       userId,
       userRole,
       allowedEmails,
-      includeBody: false, // search tidak perlu body
+      includeBody: false,
     });
 
     if (!searchLower) return emails;
 
-    // Filter berdasarkan keywords, subject, email — TIDAK scan body
     const filtered = emails.filter(
       (email) =>
         email.subject.toLowerCase().includes(searchLower) ||
@@ -391,9 +395,7 @@ class EmailService {
         .map((r) => r.pattern.toLowerCase());
 
     patterns.forEach((pattern) => {
-      if (text.includes(pattern)) {
-        keywords.push(pattern);
-      }
+      if (text.includes(pattern)) keywords.push(pattern);
     });
 
     if (keywords.length === 0 && subject) {
@@ -404,21 +406,10 @@ class EmailService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  // INVALIDATE CACHE — panggil manual kalau perlu refresh paksa
+  // BACKGROUND REFRESH — parallel fetch semua user sekaligus
   // ════════════════════════════════════════════════════════════════
-  clearCache(userId = null) {
-    if (userId) {
-      invalidateCache(`fetch_${userId}`);
-      invalidateCache(`search_${userId}`);
-      console.log(`[Cache] Invalidated for userId=${userId}`);
-    } else {
-      invalidateCache();
-      console.log("[Cache] All cleared");
-    }
-  }
-  // Jalankan sekali saat server start
-  startBackgroundRefresh(intervalSeconds = 10) {
-    let isRunning = false; // ← tambah flag
+  startBackgroundRefresh(intervalSeconds = 30) {
+    let isRunning = false;
 
     setInterval(async () => {
       if (isRunning) {
@@ -426,47 +417,72 @@ class EmailService {
         return;
       }
 
-      isRunning = true; // ← lock
+      isRunning = true;
 
       try {
-        console.log("[BG Refresh] Refreshing email cache...");
+        console.log("[BG Refresh] Start...");
 
         const users = db.prepare("SELECT id, role FROM users").all();
 
-        for (const user of users) {
-          let allowedEmails = [];
+        // Fetch semua user paralel — bukan sequential
+        await Promise.all(
+          users.map(async (user) => {
+            try {
+              let allowedEmails = [];
 
-          if (user.role !== "admin") {
-            const perms = db
-              .prepare(
-                "SELECT allowed_emails FROM user_permissions WHERE user_id = ?",
-              )
-              .get(user.id);
+              if (user.role !== "admin") {
+                const perms = db
+                  .prepare(
+                    "SELECT allowed_emails FROM user_permissions WHERE user_id = ?",
+                  )
+                  .get(user.id);
 
-            if (!perms?.allowed_emails?.trim()) continue;
+                if (!perms?.allowed_emails?.trim()) return;
 
-            allowedEmails = perms.allowed_emails
-              .split(",")
-              .map((e) => e.trim().toLowerCase())
-              .filter(Boolean);
-          }
+                allowedEmails = perms.allowed_emails
+                  .split(",")
+                  .map((e) => e.trim().toLowerCase())
+                  .filter(Boolean);
+              }
 
-          await this.fetchRecentEmails({
-            minutes: 10, // ← pastikan sama dengan route
-            userId: user.id,
-            userRole: user.role,
-            allowedEmails,
-          });
-        }
+              await this.fetchRecentEmails({
+                minutes: 30,
+                userId: user.id,
+                userRole: user.role,
+                allowedEmails,
+              });
+            } catch (err) {
+              console.error(
+                `[BG Refresh] Error userId=${user.id}:`,
+                err.message,
+              );
+            }
+          }),
+        );
 
         console.log("[BG Refresh] Done");
       } catch (err) {
         console.error("[BG Refresh] Error:", err);
       } finally {
-        isRunning = false; // ← unlock
+        isRunning = false;
       }
     }, intervalSeconds * 1000);
   }
+
+  // ════════════════════════════════════════════════════════════════
+  // CLEAR CACHE
+  // ════════════════════════════════════════════════════════════════
+  clearCache(userId = null) {
+    if (userId) {
+      invalidateCache(`fetch_${userId}`);
+      invalidateCache(`search_${userId}`);
+      console.log(`[Cache] Invalidated untuk userId=${userId}`);
+    } else {
+      invalidateCache();
+      console.log("[Cache] All cleared");
+    }
+  }
+
   // ════════════════════════════════════════════════════════════════
   // DISCONNECT
   // ════════════════════════════════════════════════════════════════
